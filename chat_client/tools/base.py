@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 import inspect
+import re
 
 
 @dataclass
@@ -32,6 +33,35 @@ def _xml_response(status: str, result: str, metadata: dict = None, tool_name: st
     resp = ToolResponse(status=status, content=result, metadata=metadata,
                         is_error=(status == "error"), tool_name=tool_name)
     return resp.to_xml()
+
+
+_TOOL_NAME_RE = re.compile(r"<tool_name>(.*?)</tool_name>", re.DOTALL)
+_TOOL_STATUS_RE = re.compile(r"<toolcall_status>(.*?)</toolcall_status>", re.DOTALL)
+_TOOL_BODY_RE = re.compile(r"<toolcall_result>(.*?)</toolcall_result>", re.DOTALL)
+
+
+def tool_result_for_model(result: Any) -> Any:
+    """把工具结果转换成面向模型的纯文本，去掉 <tool> XML 外壳。
+
+    背景：工具执行结果内部统一用 <tool>...</tool> 封装（便于归档/展示），但
+    模型侧走的是原生 function calling。把 XML 结果原样回灌，部分模型会误以为
+    工具调用协议也是 XML，进而在 reasoning/正文里输出 <invoke>/<parameter>
+    等伪调用标签，长会话下退化成重复闭合标签死循环。
+
+    这里只在「发给模型」的边界做归一化：保留状态与正文，去掉工具调用标签；
+    归档、前端展示仍使用原始 XML。非 <tool> 结构原样返回。
+    """
+    if not isinstance(result, str) or "<tool>" not in result:
+        return result
+    body_m = _TOOL_BODY_RE.search(result)
+    if not body_m:
+        return result
+    name_m = _TOOL_NAME_RE.search(result)
+    status_m = _TOOL_STATUS_RE.search(result)
+    name = (name_m.group(1).strip() if name_m else "") or "unknown"
+    status = (status_m.group(1).strip() if status_m else "done") or "done"
+    body = body_m.group(1).strip("\n")
+    return f"--- tool result: {name} ({status}) ---\n{body}\n--- end tool result ---"
 
 
 def _infer_tool_name() -> str:
@@ -115,11 +145,78 @@ SAFE_READONLY_COMMANDS = frozenset({
     "git config --list", "git describe", "git blame", "git grep", "git shortlog",
 })
 
-BANNED_COMMANDS = frozenset({
-    "alias", "curl", "curlie", "wget", "axel", "aria2c",
-    "nc", "telnet", "lynx", "w3m", "links", "httpie", "xh",
-    "http-prompt", "chrome", "firefox", "safari",
-})
+# 命令名黑名单：改为从 config.json 的 banned_commands 字段读取（默认空 = 不拦截任何命令）。
+# 配置项修改后无需重启（每次执行命令时实时读取，带 2s 缓存）。
+import json as _json
+import os as _os
+import time as _time
+
+_BANNED_CACHE: dict[str, Any] = {"ts": 0.0, "cmds": frozenset()}
+_BANNED_CACHE_TTL = 2.0
+
+
+def get_banned_commands() -> frozenset[str]:
+    """读取 config.json 的 banned_commands（命令名列表）。默认空集。"""
+    now = _time.time()
+    if now - _BANNED_CACHE["ts"] < _BANNED_CACHE_TTL:
+        return _BANNED_CACHE["cmds"]  # type: ignore[return-value]
+    cmds: frozenset[str] = frozenset()
+    try:
+        cfg_path = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
+            "config.json",
+        )
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = _json.load(f)
+        raw = cfg.get("banned_commands") or []
+        if isinstance(raw, str):
+            raw = [x.strip() for x in raw.replace(",", "\n").splitlines() if x.strip()]
+        cmds = frozenset(str(x).strip().lower() for x in raw if str(x).strip())
+    except Exception:  # noqa: BLE001
+        cmds = frozenset()
+    _BANNED_CACHE["ts"] = now
+    _BANNED_CACHE["cmds"] = cmds
+    return cmds
+
+
+# 兼容旧引用：模块加载时的快照（新代码请用 get_banned_commands() 实时读取）
+BANNED_COMMANDS = get_banned_commands()
+
+
+# --- Bash 工具默认超时（毫秒）---
+# 取值优先级：config.json 的 agent.bash_timeout（秒）→ 内置默认 30s。
+# 每次执行实时读取（2s 缓存），设置页保存后立即生效，无需重启。
+DEFAULT_BASH_TIMEOUT_MS = 30_000
+_BASH_TIMEOUT_CACHE: dict[str, Any] = {"ts": 0.0, "ms": DEFAULT_BASH_TIMEOUT_MS}
+_BASH_TIMEOUT_CACHE_TTL = 2.0
+
+
+def get_bash_timeout_ms() -> int:
+    """读取 config.json 的 agent.bash_timeout（秒），换算为毫秒返回。
+
+    缺失/非法时回退 30s。下限 1s、上限 3600s，避免误配成 0 或离谱值。
+    """
+    now = _time.time()
+    if now - _BASH_TIMEOUT_CACHE["ts"] < _BASH_TIMEOUT_CACHE_TTL:
+        return _BASH_TIMEOUT_CACHE["ms"]  # type: ignore[return-value]
+    ms = DEFAULT_BASH_TIMEOUT_MS
+    try:
+        cfg_path = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
+            "config.json",
+        )
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = _json.load(f)
+        agent_cfg = cfg.get("agent") if isinstance(cfg.get("agent"), dict) else {}
+        raw = agent_cfg.get("bash_timeout", cfg.get("bash_timeout"))
+        if raw is not None and str(raw).strip() != "":
+            sec = float(raw)
+            ms = int(min(max(sec, 1.0), 3600.0) * 1000)
+    except Exception:  # noqa: BLE001
+        ms = DEFAULT_BASH_TIMEOUT_MS
+    _BASH_TIMEOUT_CACHE["ts"] = now
+    _BASH_TIMEOUT_CACHE["ms"] = ms
+    return ms
 
 
 def truncate_output(content: str, max_len: int = MAX_OUTPUT_LENGTH) -> str:

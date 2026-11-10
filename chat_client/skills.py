@@ -86,6 +86,8 @@ class SkillManager:
 
     # 市场源配置（从 config.json 的 skills_market 注入），支持多源合并
     _DEFAULT_MARKET_REPOS = [
+        # SkillHub 公开 API（免认证、无限流）优先，确保无 config.json 部署也能用
+        {"type": "skillhub", "owner": "skillhub", "name": "skillhub", "enabled": True},
         {"owner": "openai", "name": "skills", "path": "skills/.curated", "ref": "main", "enabled": True},
     ]
 
@@ -115,6 +117,7 @@ class SkillManager:
                 "name": r["name"],
                 "path": str(r.get("path", "")).strip("/"),
                 "ref": r.get("ref", "main"),
+                "type": r.get("type", "github"),
             })
         self._market_repos = cleaned or list(self._DEFAULT_MARKET_REPOS)
         logger.info("[SkillManager] 市场源配置为 %d 个仓库", len(self._market_repos))
@@ -264,6 +267,23 @@ class SkillManager:
         disabled_names = self._disabled_name_set()
         return [skill for skill in self.all() if skill.name not in disabled_names]
 
+    def search(self, query: str, limit: int = 5) -> list[dict]:
+        """按关键词搜索技能（名称+描述），返回{score, name, description[:100]}列表，按分数降序。"""
+        if not query:
+            return []
+        q = query.lower()
+        hits = []
+        for s in self.all():
+            score = 0
+            if q in s.name.lower():
+                score += 3
+            if q in s.description.lower():
+                score += 1
+            if score > 0:
+                hits.append({"score": score, "name": s.name, "description": s.description[:150]})
+        hits.sort(key=lambda x: -x["score"])
+        return hits[:limit]
+
     def is_enabled(self, name: str) -> bool:
         if not self.get(name):
             return False
@@ -407,11 +427,11 @@ class SkillManager:
     _MAX_SINGLE_FILE = 20 * 1024 * 1024   # 单个文件解压后上限 20MB
     _ZIP_BOMB_RATIO = 1000                # 压缩比异常阈值（file_size / compress_size）
 
-    def install_from_zip(self, zip_bytes: bytes, overwrite: bool = False) -> dict:
+    def install_from_zip(self, zip_bytes: bytes, overwrite: bool = False, name: str = "") -> dict:
         """
         从 ZIP 字节流安装技能包。
         支持两种布局：SKILL.md 位于压缩包根目录，或位于唯一一级子目录内。
-        技能名优先取 SKILL.md frontmatter 的 name 字段，否则用子目录名。
+        技能名优先取显式 name 参数，其次 SKILL.md frontmatter 的 name 字段，否则用子目录名。
         内置 Zip-Slip / 路径穿越 / 体积限制防护。
         """
         import io
@@ -469,17 +489,20 @@ class SkillManager:
         else:
             return {"status": False, "msg": "未找到 SKILL.md（须位于压缩包根目录或唯一一级子目录内）"}
 
-        # 解析技能名：frontmatter name > 子目录名
+        # 解析技能名：显式 name > frontmatter name > 子目录名
         skill_name = ""
-        try:
-            head = zf.read(md_member).decode("utf-8", errors="replace")[:2048]
-            m = re.search(r"^name:\s*['\"]?([A-Za-z0-9_\-]+)['\"]?\s*$", head, re.MULTILINE)
-            if m:
-                skill_name = m.group(1)
-        except Exception:
-            logger.warning("未处理的异常", exc_info=True)
-        if not skill_name and prefix:
-            skill_name = prefix.rstrip("/")
+        if name and self._NAME_RE.match(name):
+            skill_name = name
+        if not skill_name:
+            try:
+                head = zf.read(md_member).decode("utf-8", errors="replace")[:2048]
+                m = re.search(r"^name:\s*['\"]?([A-Za-z0-9_\-]+)['\"]?\s*$", head, re.MULTILINE)
+                if m:
+                    skill_name = m.group(1)
+            except Exception:
+                logger.warning("未处理的异常", exc_info=True)
+            if not skill_name and prefix:
+                skill_name = prefix.rstrip("/")
         if not skill_name or not self._NAME_RE.match(skill_name):
             return {"status": False, "msg": f"无法确定合法技能名（frontmatter name 或目录名需匹配 [A-Za-z0-9_-]，当前: {skill_name!r}）"}
 
@@ -490,34 +513,19 @@ class SkillManager:
             shutil.rmtree(target_dir, ignore_errors=True)
 
         os.makedirs(target_dir, exist_ok=True)
-        dest_real = os.path.realpath(target_dir)
         extracted = 0
-        written_total = 0   # 实际写入字节累计（ZIP 元数据可伪造，此处为运行时兜底防线）
         try:
-            for zi in zf.infolist():
-                # 目录占位条目跳过；符号链接成员一律拒绝（防止链接逃逸或指向敏感文件）
-                if zi.is_dir() or ((zi.external_attr >> 16) & 0o170000) == 0o120000:
-                    continue
-                rel = zi.filename[len(prefix):] if prefix else zi.filename
-                if not rel:
-                    continue
-                dest_path = os.path.realpath(os.path.join(dest_real, rel))
-                if not (dest_path == dest_real or dest_path.startswith(dest_real + os.sep)):
-                    return {"status": False, "msg": "成员越界（路径穿越），已中止并清理"}
-                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                with zf.open(zi) as src_f, open(dest_path, "wb") as out_f:
-                    while True:
-                        chunk = src_f.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        written_total += len(chunk)
-                        if written_total > self._MAX_TOTAL_UNCOMPRESSED:
-                            raise ValueError(
-                                f"实际解压写入总量超出 "
-                                f"{self._MAX_TOTAL_UNCOMPRESSED // 1024 // 1024}MB 限制（疑似 zip 炸弹）"
-                            )
-                        out_f.write(chunk)
-                extracted += 1
+            from security_utils import UnsafeArchiveError, safe_extract_zip
+            extracted = safe_extract_zip(
+                zf,
+                target_dir,
+                strip_prefix=prefix,
+                max_total_bytes=self._MAX_TOTAL_UNCOMPRESSED,
+                max_members=self._MAX_MEMBERS,
+            )
+        except UnsafeArchiveError as e:
+            shutil.rmtree(target_dir, ignore_errors=True)
+            return {"status": False, "msg": f"解压校验失败已回滚: {e!s}"}
         except Exception as e:
             shutil.rmtree(target_dir, ignore_errors=True)
             return {"status": False, "msg": f"解压失败已回滚: {e!s}"}
@@ -587,6 +595,21 @@ class SkillManager:
             user, repo, branch = m.group(1), m.group(2), m.group(3)
             branch = branch or "main"
             return f"https://codeload.github.com/{user}/{repo}/zip/refs/heads/{branch}"
+
+        # SkillHub：详情页 URL → 官方下载接口
+        #   https://api.skillhub.cn/{namespace}/{slug}  →  download?slug={slug}&namespace={namespace}
+        #   https://skillhub.cn/skill/{slug}            →  download?slug={slug}
+        sh = re.match(
+            r"^https://(?:api\.)?skillhub\.cn/(?:(?P<ns>[A-Za-z0-9_.\-]+)/)?(?P<slug>[A-Za-z0-9_.\-]+)/?$",
+            url.strip(),
+        )
+        if sh:
+            ns, slug = sh.group("ns"), sh.group("slug")
+            if slug and slug not in ("skill", "skills", "skillspackage", "market"):
+                q = f"slug={slug}"
+                if ns and ns not in ("skill", "skills", "api"):
+                    q += f"&namespace={ns}"
+                return f"https://api.skillhub.cn/api/v1/download?{q}"
         return url.strip()
 
     @staticmethod
@@ -617,38 +640,26 @@ class SkillManager:
 
         # 内网地址默认拒绝（防 SSRF）；设置 AI_AGENT_SKILL_ALLOW_PRIVATE=1 可放行内网技能仓库
         allow_private = os.environ.get("AI_AGENT_SKILL_ALLOW_PRIVATE", "").strip().lower() in ("1", "true", "yes")
-        try:
-            from urllib.parse import urlparse
-            host = urlparse(url).hostname or ""
-            if not allow_private and self._is_private_host(host):
-                return {"status": False, "msg": f"拒绝访问内网/本机地址: {host}（如需允许内网源，设置环境变量 AI_AGENT_SKILL_ALLOW_PRIVATE=1）"}
-        except Exception:
-            logger.warning("未处理的异常", exc_info=True)
         download_url = self._normalize_skill_source_url(url)
 
+        from security_utils import UnsafeURLError, fetch_public_url
         try:
-            resp = _requests.get(download_url, timeout=(10, 60), stream=True,
-                                 headers={"User-Agent": "ai-agent-skill-installer"})
+            data, final_url = fetch_public_url(
+                download_url,
+                timeout=(10, 60),
+                headers={"User-Agent": "ai-agent-skill-installer"},
+                max_bytes=self._MAX_DOWNLOAD_BYTES,
+                allow_private=allow_private,
+            )
+        except UnsafeURLError as e:
+            return {"status": False, "msg": str(e)}
         except _requests.Timeout:
             return {"status": False, "msg": "下载超时"}
         except Exception as e:
-            return {"status": False, "msg": f"下载失败: {e!s}"}
+            logger.warning("技能下载失败: %s", e, exc_info=True)
+            return {"status": False, "msg": "下载失败"}
 
-        if resp.status_code != 200:
-            return {"status": False, "msg": f"下载失败，HTTP {resp.status_code}: {download_url}"}
-
-        chunks = []
-        total = 0
-        try:
-            for chunk in resp.iter_content(chunk_size=65536):
-                total += len(chunk)
-                if total > self._MAX_DOWNLOAD_BYTES:
-                    return {"status": False, "msg": "文件超过 30MB 下载上限"}
-                chunks.append(chunk)
-        except Exception as e:
-            return {"status": False, "msg": f"下载中断: {e!s}"}
-
-        data = b"".join(chunks)
+        download_url = final_url
         if not data:
             return {"status": False, "msg": "下载内容为空"}
         # 简单校验确实是 ZIP（PK 头），避免把 HTML 错误页当包安装
@@ -733,7 +744,56 @@ class SkillManager:
         merged: dict[str, dict] = {}   # name -> item（多源同名去重，先到先得）
         errors = []
         for repo in repos:
+            rtype = repo.get("type", "github")
             owner, name = repo["owner"], repo["name"]
+
+            # ── SkillHub 公开 API 源（免认证、无 GitHub 限流）──
+            if rtype == "skillhub":
+                for page in range(1, 4):  # 每页 100，拉前 300 条作为市场浏览列表
+                    api_url = f"https://api.skillhub.cn/api/skills?page={page}&pageSize=100"
+                    try:
+                        resp = _requests.get(api_url, timeout=(10, 30),
+                                             headers={"User-Agent": "ai-agent-skill-market"})
+                    except _requests.Timeout:
+                        errors.append(f"{owner}/{name}: 请求超时")
+                        break
+                    except Exception as e:
+                        errors.append(f"{owner}/{name}: {e!s}")
+                        break
+                    if resp.status_code != 200:
+                        errors.append(f"{owner}/{name}: HTTP {resp.status_code}")
+                        break
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        errors.append(f"{owner}/{name}: 响应解析失败")
+                        break
+                    skills = (data.get("data") or {}).get("skills") if isinstance(data, dict) else None
+                    if not isinstance(skills, list):
+                        errors.append(f"{owner}/{name}: 格式异常")
+                        break
+                    if not skills:
+                        break
+                    for sk in skills:
+                        if not isinstance(sk, dict):
+                            continue
+                        sname = sk.get("name", "")
+                        slug = sk.get("slug", "")
+                        key = slug or sname
+                        if not key or key in merged:
+                            continue
+                        homepage = sk.get("homepage") or ""
+                        if not homepage and slug:
+                            homepage = f"https://skillhub.cn/skill/{slug}"
+                        merged[key] = {
+                            "name": sname or slug,
+                            "installed": (sname in installed) or (slug in installed),
+                            "repo": "skillhub/skillhub",
+                            "url": homepage or "https://skillhub.cn",
+                        }
+                continue
+
+            # ── GitHub 仓库源 ──
             path = repo.get("path", "")
             ref = repo.get("ref", "main")
             api_path = f"{path}/" if path else ""
@@ -914,24 +974,185 @@ class SkillManager:
                 cat = "工具集成"
             categories.setdefault(cat, []).append({"name": name, "desc": desc})
 
+        # 有 search 工具后，摘要只需展示类别+代表技能；具体匹配交给 Skills(action="search")
         lines = [f"## 可用技能（共 {len(skills)} 个，按 {len(categories)} 个类别分组）"]
-        lines.append("当用户请求涉及特定领域时，使用 `Skills(name=\"技能名\")` 加载该技能的详细工作流。")
+        lines.append("用法：先 `Skills(action=\"search\", name=\"关键词\")` 搜出候选，再用 `Skills(name=\"技能名\")` 加载完整工作流。")
         lines.append("")
         for cat, items in sorted(categories.items()):
-            sample = items[:6]
-            more = f" 等共{len(items)}个" if len(items) > 6 else ""
             parts = []
-            for s in sample:
-                d = (s['desc'] or "").strip()
-                if d:
-                    # 截断到 120 字符，避免单行过长；保留触发场景（description 前部通常是用途/触发词）
-                    d = d if len(d) <= 120 else d[:120] + "…"
-                    parts.append(f"`{s['name']}`（{d}）")
+            for i, s in enumerate(items[:2]):
+                name = f"`{s['name']}`"
+                if s.get('desc'):
+                    d = s['desc'].strip().replace('\n', ' ')[:60]
+                    parts.append(f"{name}（{d}…）")
                 else:
-                    parts.append(f"`{s['name']}`")
-            names = ', '.join(parts)
-            lines.append(f"- **{cat}**{more}: {names}")
+                    parts.append(name)
+            more = f" 等{len(items)}个" if len(items) > 2 else ""
+            lines.append(f"- **{cat}**{more}: {', '.join(parts)}")
         return "\n".join(lines)
+
+    # ==================== P2-a: 技能包（复用/导出/导入） ====================
+    # 技能包 = 一组技能的清单（manifest），可导出为 ZIP 跨项目/跨会话复用。
+
+    PACKAGE_FORMAT = "bt-skill-package/v1"
+
+    def export_package(self, names: list[str], package_name: str = "") -> bytes:
+        """把指定技能打包为 ZIP（含 manifest.json）。返回 zip 字节。"""
+        import io
+        import zipfile
+        names = [str(n).strip() for n in (names or []) if str(n).strip()]
+        if not names:
+            raise ValueError("技能列表为空")
+        found = {}
+        for nm in names:
+            sk = self.get(nm)
+            if not sk:
+                raise ValueError(f"技能不存在: {nm}")
+            found[nm] = sk
+        pkg_name = (package_name or "skill-package").strip()
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            manifest = {
+                "format": self.PACKAGE_FORMAT,
+                "name": pkg_name,
+                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "skills": [],
+            }
+            for nm, sk in found.items():
+                skill_dir = os.path.dirname(sk.location)
+                # 技能目录下的所有文件（含 SKILL.md 与附属脚本/参考）
+                for root, dirs, files in os.walk(skill_dir):
+                    dirs[:] = [d for d in dirs if not d.startswith(".")]
+                    for fn in files:
+                        if fn.startswith("."):
+                            continue
+                        full = os.path.join(root, fn)
+                        rel = os.path.relpath(full, skill_dir)
+                        arc = f"skills/{nm}/{rel}".replace(os.sep, "/")
+                        zf.write(full, arc)
+                manifest["skills"].append({
+                    "name": nm,
+                    "description": sk.description,
+                    "files": len(self.list_files(skill_dir)),
+                })
+            zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        return buf.getvalue()
+
+    def import_package(self, zip_bytes: bytes, overwrite: bool = False) -> dict:
+        """导入技能包 ZIP（可含多个技能）。逐个技能安装，返回汇总结果。"""
+        import io
+        import zipfile
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+        except Exception as e:
+            return {"status": False, "msg": f"不是有效的 ZIP: {e!s}"}
+        # 校验 manifest（可选，用于报告包名）
+        pkg_name = ""
+        try:
+            if "manifest.json" in zf.namelist():
+                mf = json.loads(zf.read("manifest.json").decode("utf-8"))
+                if isinstance(mf, dict):
+                    pkg_name = mf.get("name", "")
+                    if mf.get("format") and mf["format"] != self.PACKAGE_FORMAT:
+                        return {"status": False, "msg": f"不支持的包格式: {mf.get('format')}"}
+        except Exception:
+            pass
+
+        # 按 skills/<name>/ 分组，逐个技能构造单技能 zip 再交给 install_from_zip，
+        # 复用其全部安全校验（Zip-Slip/体积/压缩比/路径穿越）。
+        groups: dict[str, list[str]] = {}
+        for item in zf.namelist():
+            if item == "manifest.json" or item.endswith("/"):
+                continue
+            parts = item.split("/")
+            if len(parts) >= 3 and parts[0] == "skills":
+                groups.setdefault(parts[1], []).append(item)
+        if not groups:
+            # 兼容：包内直接是单技能（根或唯一一级子目录），直接透传
+            res = self.install_from_zip(zip_bytes, overwrite=overwrite)
+            if isinstance(res, dict):
+                res.setdefault("package_name", pkg_name)
+            return res
+
+        installed, skipped, errors = [], [], []
+        for sk_name, members in groups.items():
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as out:
+                for item in members:
+                    rel = item[len("skills/" + sk_name + "/"):]
+                    if not rel:
+                        continue
+                    out.writestr(rel, zf.read(item))
+            res = self.install_from_zip(buf.getvalue(), overwrite=overwrite)
+            if isinstance(res, dict) and res.get("status"):
+                installed.append(res.get("name", sk_name))
+            elif isinstance(res, dict) and "已存在" in str(res.get("msg", "")):
+                skipped.append(sk_name)
+            else:
+                errors.append(f"{sk_name}: {(res or {}).get('msg', '未知错误')}")
+
+        return {
+            "status": bool(installed) or (not errors and not skipped),
+            "msg": f"技能包 {pkg_name or ''} 导入完成：安装 {len(installed)}，跳过 {len(skipped)}，失败 {len(errors)}",
+            "package_name": pkg_name,
+            "installed": installed,
+            "skipped": skipped,
+            "errors": errors,
+        }
+
+    # ==================== P2-b: 技能呈现层（icon/分类/触发词） ====================
+    # 从 SKILL.md frontmatter 提取展示元数据，供前端/市场呈现，不影响技能执行。
+
+    _CATEGORY_KEYWORDS = {
+        "SEO/GEO": ["seo", "geo", "content", "keyword", "rank", "meta", "schema", "backlink", "serp"],
+        "数据分析": ["excel", "csv", "chart", "visual", "stat", "kpi", "trend", "parquet", "pandas"],
+        "PPT/演示": ["ppt", "pptx", "deck", "slide", "presentation"],
+        "Agent/工作流": ["agent", "workflow", "codex", "skill", "hermes", "memory", "team", "task"],
+        "DevOps/运维": ["git", "docker", "k8s", "linux", "bash", "deploy", "ci", "test", "shell"],
+        "Web/浏览器": ["web", "browser", "playwright", "scrap", "crawl"],
+        "社媒/多媒体": ["weixin", "wechat", "tieba", "video", "image", "social", "doubao", "yuanbao"],
+        "安全/逆向": ["reverse", "pwn", "ida", "radare", "firmware", "security", "exploit", "malware"],
+        "编程语言": ["python", "rust", "go", "dotnet", "nodejs", "typescript", "async"],
+        "前端/移动端": ["frontend", "react", "vue", "nextjs", "css", "mobile", "android", "ios"],
+        "数据库": ["database", "sql", "postgres", "migration"],
+        "API设计": ["api", "rest", "graphql", "openapi"],
+        "云/基础设施": ["cloud", "aws", "azure", "gcp", "terraform", "k8s", "grafana", "cost"],
+        "SN技能": ["sn-"],
+        "工具集成": ["opencode", "ccload", "sub2api"],
+    }
+
+    def _infer_category(self, name: str, description: str = "") -> str:
+        blob = f"{name} {description}".lower()
+        for cat, kws in self._CATEGORY_KEYWORDS.items():
+            if any(k in blob for k in kws):
+                return cat
+        return "其他"
+
+    def get_skill_presentation(self, name: str) -> dict:
+        """返回技能的展示元数据（icon/category/triggers/when_to_use）。"""
+        sk = self.get(name)
+        if not sk:
+            return {}
+        md = sk.metadata or {}
+        # frontmatter 可显式指定 icon/category/triggers
+        icon = str(md.get("icon") or md.get("emoji") or "").strip()
+        category = str(md.get("category") or "").strip() or self._infer_category(sk.name, sk.description)
+        triggers = md.get("triggers") or md.get("trigger") or []
+        if isinstance(triggers, str):
+            triggers = [t.strip() for t in triggers.split(",") if t.strip()]
+        when_to_use = str(md.get("when_to_use") or "").strip()
+        return {
+            "name": sk.name,
+            "icon": icon,
+            "category": category,
+            "triggers": list(triggers) if isinstance(triggers, list) else [],
+            "when_to_use": when_to_use,
+            "description": sk.description,
+        }
+
+    def get_all_presentations(self) -> list[dict]:
+        """返回所有已启用技能的展示元数据列表。"""
+        return [self.get_skill_presentation(s.name) for s in self.all_enabled()]
 
 
 # 全局单例

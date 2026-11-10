@@ -301,10 +301,58 @@ def _multi_occurrence_replacer(content: str, find: str) -> Generator[str, None, 
         yield find
         start = idx + len(find)
 
+def _align_new_str_indent(new_str: str, old_str: str) -> str:
+    """把 new_str 的行缩进对齐到 old_str（匹配到的原文）的缩进基准。
+
+    背景：模型生成 new_str 时经常丢掉/多出缩进层级（尤其在 if/for/try 块内改多行），
+    原实现把 new_str 原样插入文件，导致缩进错乱、Python 语法直接坏掉
+    （IndentationError / unexpected indent），需要模型再花一轮修复。
+
+    做法：以 old_str 第一行（非空）的缩进为基准，以 new_str 第一行（非空）的缩进为起点，
+    计算 offset 后对 new_str 逐行平移，保留其内部相对缩进层级。
+    缩进字符类型跟随 old_str（tab 文件保持 tab），new_str 自身用 tab 的行保持 tab。
+    offset == 0（本来就对齐）时原样返回，不影响正常编辑。
+    """
+    if not new_str:
+        return new_str
+
+    def _first_indent(lines):
+        for line in lines:
+            if line.strip():
+                stripped = line.lstrip(' \t')
+                return len(line) - len(stripped), (line[0] if line[0] in ' \t' else ' ')
+        return 0, ' '
+
+    old_lines = old_str.split('\n')
+    new_lines = new_str.split('\n')
+
+    old_base, old_char = _first_indent(old_lines)
+    new_base, _ = _first_indent(new_lines)
+    offset = old_base - new_base
+    if offset == 0:
+        return new_str
+
+    out = []
+    for line in new_lines:
+        if not line.strip():
+            out.append(line)
+            continue
+        stripped = line.lstrip(' \t')
+        orig_indent = len(line) - len(stripped)
+        target = max(0, orig_indent + offset)
+        if line[:1] == '\t':
+            indent_str = '\t' * target
+        else:
+            indent_str = old_char * target
+        out.append(indent_str + stripped)
+    return '\n'.join(out)
+
+
 def _perform_replace(content: str, old_str: str, new_str: str, replace_all: bool = False) -> str:
     if old_str == new_str:
          raise ValueError("No changes to apply: old_str and new_str are identical.")
     
+
     replacers = [
         _simple_replacer,
         _line_trimmed_replacer,
@@ -325,15 +373,19 @@ def _perform_replace(content: str, old_str: str, new_str: str, replace_all: bool
             if index == -1: continue
             
             not_found = False
+            # 基准必须用「实际匹配到的文件原文」search，而不是模型给的 old_str。
+            # 模糊匹配器容忍 old_str 缩进与文件不一致；若拿 old_str 当基准，
+            # 就会把错误的偏移量套到 new_str 上，写出比文件实际缩进少/多几格的代码。
+            aligned_new_str = _align_new_str_indent(new_str, search)
             
             if replace_all:
-                return content.replace(search, new_str)
+                return content.replace(search, aligned_new_str)
             
             last_index = content.rfind(search)
             if index != last_index:
                 continue 
                 
-            return content[:index] + new_str + content[index + len(search):]
+            return content[:index] + aligned_new_str + content[index + len(search):]
             
     if not_found:
         raise ValueError("Could not find old_str in the file. It must match exactly, including whitespace, indentation, and line endings.")
@@ -437,6 +489,29 @@ def _remove_extra_path(path: str):
     return removed
 
 
+# 全局敏感文件：只允许通过专用 API / 配置面板修改，
+# 禁止 Read/Write/Edit/Patch/LargeFileEdit 直接读写，防止 agent 误覆盖。
+_PROTECTED_GLOBAL_FILES: tuple[str, ...] = (
+    "config.json",
+    "auth.json",
+    "crew_agents.json",
+    "agents.json",
+    "scheduled_tasks.json",
+)
+
+
+def _is_protected_global_file(file_path: str) -> bool:
+    real = os.path.realpath(os.path.abspath(os.path.expanduser(file_path)))
+    root = os.path.realpath(_ALLOWED_BASE_DIRS[0])
+    try:
+        rel = os.path.relpath(real, root)
+    except ValueError:
+        return False
+    if rel.startswith("..") or os.path.isabs(rel):
+        return False
+    return rel in _PROTECTED_GLOBAL_FILES
+
+
 def _is_path_allowed(file_path: str) -> bool:
     real = os.path.realpath(os.path.abspath(os.path.expanduser(file_path)))
     bases = list(_ALLOWED_BASE_DIRS) + _load_extra_paths()
@@ -473,6 +548,8 @@ class FileEdit:
     """
     def execute(self, file_path: str, old_str: str, new_str: str, replace_all: bool = False) -> str:
         try:
+            if _is_protected_global_file(file_path):
+                return _xml_response("error", f"Access denied: 全局敏感配置不允许直接修改，请使用专用 API ({file_path})")
             if not _is_path_allowed(file_path):
                 return _xml_response("error", f"Path not allowed: {file_path}")
             if not os.path.exists(file_path):
@@ -558,6 +635,9 @@ class MultiFileEdit:
                     file_path = os.path.join(PROJECT_ROOT, file_path)
                 
                 try:
+                    if _is_protected_global_file(file_path):
+                        errors.append(f"{file_path}: Access denied: 全局敏感配置不允许直接修改，请使用专用 API")
+                        continue
                     if op_type == 'update':
                         result = self._apply_update(file_path, op)
                         results.append(result)
@@ -778,6 +858,8 @@ class LargeFileEdit:
     def execute(self, file_path: str, action: str = "read", content: str = "",
                 start_line: int = 1, end_line: int = 1000,
                 old_str: str = "", new_str: str = "") -> str:
+        if _is_protected_global_file(file_path) and action.lower() != "read":
+            return _xml_response("error", f"Access denied: 全局敏感配置不允许直接修改，请使用专用 API ({file_path})")
         if not _is_path_allowed(file_path):
             return _xml_response("error", f"Path not allowed: {file_path}")
         action = action.lower()

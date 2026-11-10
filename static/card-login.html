@@ -1,124 +1,250 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
+<html lang="zh-CN" data-theme="light">
+  <head>
+  <script>
+    // 主题持久化：在样式解析前应用，避免闪烁
+    try {
+      var _t = localStorage.getItem('bt_theme')
+      if (_t) document.documentElement.setAttribute('data-theme', _t)
+    } catch (e) {}
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>卡密登录 — AI Agent</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f1115; color: #e8eaed;
-      min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    }
-    .container { width: 100%; max-width: 460px; padding: 20px; }
-    .logo { text-align: center; margin-bottom: 32px; }
-    .logo h1 { font-size: 24px; font-weight: 600; color: #fff; }
-    .logo p { font-size: 13px; color: #8b909a; margin-top: 6px; }
-    .box { background: #1a1d24; border-radius: 12px; padding: 28px 24px; }
-    .title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
-    .sub { font-size: 13px; color: #8b909a; margin-bottom: 24px; line-height: 1.5; }
-    .field { margin-bottom: 16px; }
-    .field label { display: block; font-size: 13px; color: #8b909a; margin-bottom: 6px; }
-    .field input {
-      width: 100%; padding: 12px 14px; font-size: 16px; letter-spacing: 2px;
-      color: #e8eaed; background: #12141a; border: 1px solid #2c303a;
-      border-radius: 8px; outline: none; text-transform: uppercase; font-family: monospace;
-    }
-    .field input:focus { border-color: #4a7cf7; }
-    .field input::placeholder { color: #3a3f4b; letter-spacing: 1px; font-size: 14px; }
-    .err { font-size: 12px; color: #e5636a; margin-top: 6px; min-height: 18px; }
-    .btn {
-      width: 100%; padding: 12px; font-size: 15px; font-weight: 500;
-      color: #fff; background: #4a7cf7; border: none; border-radius: 8px;
-      cursor: pointer; margin-top: 8px; transition: background .2s;
-    }
-    .btn:hover { background: #3a6be6; }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-    .hint { font-size: 12px; color: #5a5f6b; margin-top: 16px; line-height: 1.6; }
-    .hint code { background: #2c303a; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+      :root {
+        --bt-primary: #07c160; --bt-primary-dark: #06ad56; --bt-primary-soft: rgba(7,193,96,.10);
+        --bt-accent: #3b82f6; --bt-bg: #f6f7f9; --bt-surface: #fff; --bt-surface-2: #f9fafb;
+        --bt-border: #e8eaed; --bt-text: #1f2937; --bt-text-2: #6b7280; --bt-text-3: #9ca3af;
+        --bt-shadow-sm: 0 1px 2px rgba(16,24,40,.05); --bt-shadow: 0 4px 14px rgba(16,24,40,.08);
+        --bt-shadow-lg: 0 12px 40px rgba(16,24,40,.16); --bt-radius: 12px; --bt-radius-sm: 8px;
+        --bt-danger: #ef4444; --bt-warn: #f59e0b;
+        --bt-transition: .2s cubic-bezier(.4,0,.2,1);
+      }
+      html[data-theme="dark"] {
+        --bt-bg: #0f1115; --bt-surface: #171a21; --bt-surface-2: #1d2129; --bt-border: #2a2f3a;
+        --bt-text: #e5e7eb; --bt-text-2: #9ca3af; --bt-text-3: #6b7280;
+        --bt-primary-soft: rgba(7,193,96,.16);
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bt-bg); color: var(--bt-text); line-height: 1.6; min-height: 100vh;
+        transition: background var(--bt-transition), color var(--bt-transition);
+      }
+      .wrap { max-width:1200px; margin:0 auto; padding:24px 20px 60px; }
+      /* 未登录时收窄居中，登录后展开为面板宽度 */
+      .wrap.login-mode { max-width:460px; padding-top:60px; }
+      /* 面板头部（与全局面板一致） */
+      header.top { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+      header.top .logo {
+        width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, var(--bt-primary), #10b981);
+        display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; flex: none;
+      }
+      header.top h1 { font-size: 22px; font-weight: 700; color: var(--bt-text); }
+      header.top .sub { font-size: 13px; color: var(--bt-text-2); margin: 0; }
+      .spacer { flex: 1; }
+      .user-badge {
+        padding: 5px 12px; background: var(--bt-primary-soft); color: var(--bt-primary);
+        border-radius: 99px; font-size: 13px; font-weight: 600;
+      }
+      .theme-btn {
+        width: 36px; height: 36px; border-radius: 8px; background: var(--bt-surface-2);
+        border: 1px solid var(--bt-border); cursor: pointer; font-size: 16px;
+        display: flex; align-items: center; justify-content: center;
+        transition: all var(--bt-transition);
+      }
+      .theme-btn:hover { border-color: var(--bt-primary); }
+      .link-logout { font-size: 13px; color: var(--bt-text-2); text-decoration: none; cursor: pointer; }
+      .link-logout:hover { color: var(--bt-danger); }
+      .logo { text-align: center; margin-bottom: 28px; }
+      .logo h1 { font-size: 24px; font-weight: 700; color: var(--bt-text); }
+      .logo p { font-size: 13px; color: var(--bt-text-2); margin-top: 6px; }
+      .box {
+        background: var(--bt-surface); border: 1px solid var(--bt-border); border-radius: var(--bt-radius);
+        padding: 28px 24px; box-shadow: var(--bt-shadow);
+      }
+      .title { font-size: 18px; font-weight: 600; color: var(--bt-text); margin-bottom: 6px; }
+      .sub { font-size: 13px; color: var(--bt-text-2); margin-bottom: 24px; line-height: 1.5; }
+      .field { margin-bottom: 16px; }
+      .field label { display: block; font-size: 13px; color: var(--bt-text-2); margin-bottom: 6px; }
+      .field input {
+        width: 100%; padding: 12px 14px; font-size: 16px; letter-spacing: 2px;
+        color: var(--bt-text); background: var(--bt-surface-2); border: 1px solid var(--bt-border);
+        border-radius: var(--bt-radius-sm); outline: none; text-transform: uppercase; font-family: monospace;
+      }
+      .field input:focus { border-color: var(--bt-primary); }
+      .field input::placeholder { color: var(--bt-text-3); letter-spacing: 1px; font-size: 14px; }
+      .err { font-size: 12px; color: var(--bt-danger); margin-top: 6px; min-height: 18px; }
+      .btn {
+        width: 100%; padding: 12px; font-size: 15px; font-weight: 500;
+        color: #fff; background: var(--bt-primary); border: none; border-radius: var(--bt-radius-sm);
+        cursor: pointer; margin-top: 8px; transition: background var(--bt-transition);
+      }
+      .btn:hover { background: var(--bt-primary-dark); }
+      .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+      .card {
+        background: var(--bt-surface); border: 1px solid var(--bt-border);
+        border-radius: var(--bt-radius); padding: 16px; margin-bottom: 14px;
+        box-shadow: var(--bt-shadow-sm);
+      }
+      .hint { font-size: 12px; color: var(--bt-text-3); margin-top: 16px; line-height: 1.6; }
+      .hint code { background: var(--bt-surface-2); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
 
-    /* Bot QR section */
-    .bot { margin-top: 28px; padding-top: 24px; border-top: 1px solid #2c303a; display: none; }
-    .bot.show { display: block; }
-    .bot-title { font-size: 14px; font-weight: 500; margin-bottom: 12px; color: #4a7cf7; }
-    .qr-wrap { background: #fff; border-radius: 8px; padding: 12px; display: flex; justify-content: center; min-height: 200px; }
-    .qr-wrap img { max-width: 180px; max-height: 180px; }
-    .bot-status { font-size: 12px; color: #8b909a; margin-top: 10px; text-align: center; }
-    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #2c303a; border-top-color: #4a7cf7; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; margin-right: 6px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+      /* Bot QR section */
+      .bot { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--bt-border); display: none; }
+      .bot.show { display: block; }
+      .bot-title { font-size: 14px; font-weight: 500; margin-bottom: 12px; color: var(--bt-primary); }
+      .qr-wrap { background: #fff; border-radius: var(--bt-radius-sm); padding: 12px; display: flex; justify-content: center; min-height: 200px; }
+      .qr-wrap img { max-width: 180px; max-height: 180px; }
+      .bot-status { font-size: 12px; color: var(--bt-text-2); margin-top: 10px; text-align: center; }
+      /* 通道扫码弹窗 */
+      .chan-qr-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1100; display: none; align-items: center; justify-content: center; }
+      .chan-qr-modal.show { display: flex; }
+      .chan-qr-box { background: var(--bt-surface); border: 1px solid var(--bt-border); border-radius: var(--bt-radius); width: 90%; max-width: 400px; padding: 24px; box-shadow: var(--bt-shadow-lg); }
+      .chan-qr-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+      .chan-qr-hd strong { font-size: 15px; color: var(--bt-text); }
+      .chan-qr-img { max-width: 200px; max-height: 200px; border-radius: 8px; border: 1px solid var(--bt-border); display: block; margin: 0 auto; }
+      .chan-qr-status { text-align: center; font-size: 12px; color: var(--bt-text-2); min-height: 20px; margin-top: 10px; }
+      .chan-qr-hint { text-align: center; font-size: 12px; color: var(--bt-text-3); margin-top: 6px; }
+      .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--bt-border); border-top-color: var(--bt-primary); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; margin-right: 6px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Card info panel */
-    .card-info { margin-top: 24px; padding-top: 20px; border-top: 1px solid #2c303a; display: none; }
-    .card-info.show { display: block; }
-    .card-info-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #e8eaed; }
-    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(44,48,58,.5); font-size: 13px; }
-    .info-row:last-child { border-bottom: none; }
-    .info-label { color: #8b909a; }
-    .info-value { color: #e8eaed; font-weight: 500; }
-    .info-value.mono { font-family: monospace; color: #4a7cf7; }
-    .badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; }
-    .badge-ok { background: rgba(40,167,69,.2); color: #5fd17c; }
-    .badge-exp { background: rgba(229,99,106,.2); color: #f48b91; }
-    .badge-long { background: rgba(74,124,247,.2); color: #7ea3f8; }
+      /* Card info panel */
+      .card-info { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--bt-border); display: none; }
+      .card-info.show { display: block; }
+      .card-info-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--bt-text); }
+      .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--bt-border); font-size: 13px; }
+      .info-row:last-child { border-bottom: none; }
+      .info-label { color: var(--bt-text-2); }
+      .info-value { color: var(--bt-text); font-weight: 500; }
+      .info-value.mono { font-family: monospace; }
+      .badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+      .badge-ok { background: rgba(40,167,69,.15); color: #16a34a; }
+      .badge-exp { background: rgba(229,99,106,.15); color: #dc2626; }
+      .badge-long { background: rgba(74,124,247,.15); color: #2563eb; }
 
-    .link {
-      display: block; text-align: center; margin-top: 16px;
-      font-size: 13px; color: #4a7cf7; cursor: pointer; text-decoration: underline;
-    }
-    .link:hover { color: #7ea3f8; }
+      a.link { color: var(--bt-accent); text-decoration: none; font-size: 13px; }
+      a.link:hover { text-decoration: underline; }
+      .link:hover { color: var(--bt-primary); }
 
-    /* 设置面板 */
-    .settings-panel {
-      margin-top: 20px; padding-top: 20px; border-top: 1px solid #2c303a;
-    }
-    .settings-title {
-      font-size: 14px; font-weight: 600; margin-bottom: 16px; color: #e8eaed;
-      display: flex; align-items: center; gap: 8px;
-    }
-    .settings-title::before { content: '⚙️'; }
-    .setting-group { margin-bottom: 14px; }
-    .setting-label {
-      display: block; font-size: 12px; color: #8b909a; margin-bottom: 6px;
-    }
-    .setting-input {
-      width: 100%; padding: 10px 12px; font-size: 13px;
-      color: #e8eaed; background: #12141a; border: 1px solid #2c303a;
-      border-radius: 6px; outline: none;
-    }
-    .setting-input:focus { border-color: #4a7cf7; }
-    .setting-input::placeholder { color: #3a3f4b; }
-    .setting-select {
-      width: 100%; padding: 10px 12px; font-size: 13px;
-      color: #e8eaed; background: #12141a; border: 1px solid #2c303a;
-      border-radius: 6px; outline: none; cursor: pointer;
-    }
-    .setting-select:focus { border-color: #4a7cf7; }
-    .setting-hint { font-size: 11px; color: #5a5f6b; margin-top: 4px; }
-    .btn-save-settings {
-      width: 100%; padding: 10px; font-size: 14px; font-weight: 500;
-      color: #fff; background: #2d6a4f; border: none; border-radius: 6px;
-      cursor: pointer; margin-top: 8px; transition: background .2s;
-    }
-    .btn-save-settings:hover { background: #3a8f65; }
-    .btn-save-settings:disabled { opacity: 0.5; cursor: not-allowed; }
-    .settings-msg { font-size: 12px; margin-top: 8px; min-height: 18px; }
-    .settings-msg.ok { color: #5fd17c; }
-    .settings-msg.err { color: #e5636a; }
-  </style>
+      /* 设置双栏布局 */
+      .settings-layout { display: flex; gap: 16px; align-items: flex-start; }
+      .settings-nav { flex: 0 0 200px; display: flex; flex-direction: column; gap: 4px; }
+      .set-tab {
+        padding: 8px 12px; font-size: 13px; color: var(--bt-text-2);
+        background: transparent; border: none; border-radius: var(--bt-radius-sm);
+        cursor: pointer; text-align: left; font-weight: 500;
+        transition: all var(--bt-transition);
+      }
+      .set-tab:hover { background: var(--bt-primary-soft); color: var(--bt-text); }
+      .set-tab.active { background: var(--bt-primary-soft); color: var(--bt-primary); font-weight: 600; }
+      .settings-content { flex: 1; min-width: 0; }
+      .set-panel { display: none; }
+      .set-panel.active { display: block; }
+      /* form 类 */
+      .form-section { margin-bottom: 12px; }
+      .form-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; color: var(--bt-text); }
+      .form-input {
+        width: 100%; padding: 8px 10px; font-size: 13px;
+        color: var(--bt-text); background: var(--bt-surface-2); border: 1px solid var(--bt-border);
+        border-radius: var(--bt-radius-sm); outline: none;
+      }
+      .form-input:focus { border-color: var(--bt-primary); }
+      .form-hint { font-size: 11px; color: var(--bt-text-3); margin-top: 4px; }
+      .card h3 { font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--bt-text); }
+      .btn.pri { background: var(--bt-primary); border-color: var(--bt-primary); color: #fff; font-weight: 600; }
+      .btn.pri:hover { background: var(--bt-primary-dark); }
+      .settings-msg { font-size: 12px; margin-top: 8px; min-height: 18px; }
+      .settings-msg.ok { color: #16a34a; }
+      .settings-msg.err { color: var(--bt-danger); }
+      /* Tab 导航 */
+      .tabs {
+        display: flex; gap: 4px; margin: 20px 0 18px;
+        border-bottom: 1px solid var(--bt-border);
+        flex-wrap: wrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+      }
+      .tab {
+        padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer;
+        background: transparent; border: none; border-bottom: 2px solid transparent;
+        color: var(--bt-text-2); white-space: nowrap; margin-bottom: -1px;
+        transition: color var(--bt-transition), border-color var(--bt-transition);
+      }
+      .tab:hover { color: var(--bt-text); }
+      .tab.active { color: var(--bt-primary); border-bottom-color: var(--bt-primary); font-weight: 600; }
+      .tab-panel { display: none; }
+      .tab-panel.active { display: block; }
+
+      /* 各 Tab 顶部小标题栏 */
+      .chan-header {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .chan-title { font-size: 15px; font-weight: 600; color: var(--bt-text); margin-right: auto; }
+
+      /* 卡片网格 + 卡片内部结构 */
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+      .card .hd { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .card .nm { font-weight: 600; font-size: 14px; color: var(--bt-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .card .kind { font-size: 11px; color: var(--bt-text-3); font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .card .ft { display: flex; gap: 6px; flex-wrap: wrap; }
+      .badge.ok { background: var(--bt-primary-soft); color: var(--bt-primary-dark); }
+      .badge.no { background: rgba(239,68,68,.12); color: var(--bt-danger); }
+      .field label .req, .form-label .req { color: var(--bt-danger); }
+      .btn-sm {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 6px 12px; font-size: 12px; font-weight: 500; line-height: 1.4;
+        color: var(--bt-text-2); background: var(--bt-surface);
+        border: 1px solid var(--bt-border); border-radius: var(--bt-radius-sm);
+        cursor: pointer; white-space: nowrap;
+        transition: all var(--bt-transition);
+      }
+      .btn-sm:hover { border-color: var(--bt-primary); color: var(--bt-primary); }
+      .btn-sm.active { background: var(--bt-primary-soft); color: var(--bt-primary); border-color: var(--bt-primary); }
+      .btn-sm.primary { background: var(--bt-primary); border-color: var(--bt-primary); color: #fff; font-weight: 600; }
+      .btn-sm.primary:hover { background: var(--bt-primary-dark); color: #fff; }
+      .chan-list { margin-bottom: 20px; }
+      .chan-item {
+        display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+        background: var(--bt-surface-2); border: 1px solid var(--bt-border); border-radius: var(--bt-radius); margin-bottom: 8px;
+        transition: all var(--bt-transition);
+      }
+      .chan-item:hover { border-color: var(--bt-primary); box-shadow: var(--bt-shadow-sm); }
+      .chan-item-info { flex: 1; min-width: 0; }
+      .chan-item-name { font-size: 13px; font-weight: 600; color: var(--bt-text); }
+      .chan-item-meta { font-size: 11px; color: var(--bt-text-2); margin-top: 3px; }
+      .chan-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; margin-left: 6px; }
+      .chan-badge.on { background: rgba(40,167,69,.15); color: #16a34a; }
+      .chan-badge.off { background: rgba(107,114,128,.15); color: var(--bt-text-2); }
+      .chan-actions { display: flex; gap: 6px; flex-shrink: 0; }
+      .chan-create { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--bt-border); }
+      .chan-create-title { font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--bt-text); }
+      .empty { text-align: center; color: var(--bt-text-3); font-size: 13px; padding: 24px 0; }
+
+      /* Modal 弹窗 */
+      .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000; display: none; align-items: center; justify-content: center; }
+      .modal-bg.show { display: flex; }
+      .modal { background: var(--bt-surface); border: 1px solid var(--bt-border); border-radius: var(--bt-radius); width: 90%; max-width: 480px; box-shadow: var(--bt-shadow-lg); }
+      .mh { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--bt-border); }
+      .mh h3 { flex: 1; font-size: 15px; font-weight: 600; color: var(--bt-text); margin: 0; }
+      .mb { padding: 20px; max-height: 60vh; overflow-y: auto; }
+      .mf { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--bt-border); }
+      .mf .btn { width: auto; margin-top: 0; padding: 8px 16px; font-size: 13px; }
+      .mh .btn.ghost { width: auto; margin-top: 0; padding: 4px 10px; font-size: 13px; }
+      .btn.ghost { background: transparent; border: 1px solid var(--bt-border); color: var(--bt-text); }
+      .btn.ghost:hover { border-color: var(--bt-primary); color: var(--bt-primary); }
+      .btn.primary { background: var(--bt-primary); border-color: var(--bt-primary); color: #fff; font-weight: 600; }
+      .btn.primary:hover { background: var(--bt-primary-dark); }
+      .icon { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 14px; flex: none; }
+    </style>
 </head>
 <body>
-<div class="container">
-  <div class="logo">
-    <h1>🤖 AI Agent</h1>
-    <p>卡密用户入口 · 专属会话 · 微信扫码绑定机器人</p>
-  </div>
-
+<div class="wrap login-mode">
   <div class="box">
     <!-- Login Form -->
     <div id="loginForm">
       <div class="title">输入卡密登录</div>
-      <div class="sub">前 6 位作为您的专属会话 ID，登录后扫码绑定微信机器人</div>
+      <div class="sub">前 6 位作为您的专属会话 ID，登录后可配置自己的通道</div>
 
       <div class="field">
         <label for="cardKey">卡密</label>
@@ -131,23 +257,38 @@
 
       <div class="hint">
         提示：卡密前 6 位为您的会话 ID，<code>ABC123</code> 格式。<br>
-        同一卡密前缀相同则共享会话历史。聊天在微信中完成。
+        同一卡密前缀相同则共享会话历史。
       </div>
     </div>
 
     <!-- Success + Bot QR + Card Info -->
     <div id="successView" style="display:none">
-      <div class="title" id="welcomeTitle">🎉 登录成功</div>
-      <div class="sub" id="welcomeSub">会话已绑定，请扫码连接微信机器人</div>
+      <header class="top">
+        <div class="logo">🤖</div>
+        <div>
+          <h1>卡密工作台</h1>
+          <div class="sub" id="welcomeSub">专属会话 · 独立通道 · 个人技能</div>
+        </div>
+        <div class="spacer"></div>
+        <a class="link" href="/connectors" target="_blank">🔌 连接器管理 →</a>
+        <a class="link" href="/browser" target="_blank">打开浏览器控制台 →</a>
+        <span class="user-badge" id="welcomeBadge">—</span>
+        <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
+        <a class="link-logout" onclick="doLogout()">退出</a>
+      </header>
 
-      <!-- Bot QR -->
-      <div class="bot show" id="botSection">
-        <div class="bot-title">📱 绑定微信机器人</div>
-        <div class="qr-wrap" id="qrWrap"><span class="spinner"></span></div>
-        <div class="bot-status" id="botStatus">正在加载二维码…</div>
+      <!-- Tab 导航 -->
+      <div class="tabs">
+        <button class="tab active" data-tab="info" onclick="switchTab('info')">卡密信息</button>
+        <button class="tab" data-tab="channels" onclick="switchTab('channels')">通道管理</button>
+        <button class="tab" data-tab="connectors" onclick="switchTab('connectors')">我的连接器</button>
+        <button class="tab" data-tab="mcp" onclick="switchTab('mcp')">MCP 服务器</button>
+        <button class="tab" data-tab="skills" onclick="switchTab('skills')">我的技能</button>
+        <button class="tab" data-tab="settings" onclick="switchTab('settings')">个人配置</button>
       </div>
 
-      <!-- Card Info -->
+      <!-- Tab: 卡密信息 -->
+      <div class="tab-panel active" id="tab-info">
       <div class="card-info show" id="cardInfo">
         <div class="card-info-title">📋 卡密信息</div>
         <div class="info-row">
@@ -167,45 +308,146 @@
           <span class="info-value" id="infoCreated">—</span>
         </div>
       </div>
-
-      <!-- 用户配置面板 -->
-      <div class="settings-panel" id="settingsPanel">
-        <div class="settings-title">个人配置</div>
-        <div class="setting-group">
-          <label class="setting-label">提示词模板</label>
-          <select class="setting-select" id="cfgTemplate">
-            <option value="">不使用模板</option>
-          </select>
-          <div class="setting-hint">选择内置提示词模板，将覆盖自定义提示词</div>
-        </div>
-        <div class="setting-group">
-          <label class="setting-label">AI 模型</label>
-          <select class="setting-select" id="cfgModel">
-            <option value="">使用全局默认</option>
-          </select>
-          <div class="setting-hint">留空使用管理员配置的全局默认模型</div>
-        </div>
-        <div class="setting-group">
-          <label class="setting-label">API 地址（可选）</label>
-          <input class="setting-input" id="cfgApiBase" type="text" placeholder="https://api.example.com/v1" />
-          <div class="setting-hint">留空使用全局 API 地址</div>
-        </div>
-        <div class="setting-group">
-          <label class="setting-label">API Key（可选）</label>
-          <input class="setting-input" id="cfgApiKey" type="password" placeholder="自定义 API Key" />
-          <div class="setting-hint">留空使用全局 API Key</div>
-        </div>
-        <div class="setting-group">
-          <label class="setting-label">系统提示词（可选）</label>
-          <textarea class="setting-input" id="cfgPrompt" rows="3" placeholder="自定义系统提示词"></textarea>
-          <div class="setting-hint">留空使用管理员配置的全局提示词</div>
-        </div>
-        <button class="btn-save-settings" id="saveSettingsBtn" onclick="saveUserConfig()">保存配置</button>
-        <div class="settings-msg" id="settingsMsg"></div>
       </div>
 
-      <div class="link" onclick="location.href='/static/card-admin.html'" style="color:#5a5f6b;text-decoration:none;font-size:12px">管理员入口</div>
-      <div class="link" onclick="doLogout()" style="margin-top:4px">退出登录</div>
+      <!-- Tab: 通道管理 -->
+      <div class="tab-panel" id="tab-channels">
+        <div class="chan-header">
+          <div class="chan-title">🔌 我的通道</div>
+          <button class="btn-sm" onclick="loadChannels()">↻ 刷新</button>
+        </div>
+        <div class="chan-list" id="chanList"><div class="empty">加载中…</div></div>
+
+        <div class="chan-create">
+          <div class="chan-create-title">＋ 新建通道</div>
+          <div class="form-section">
+            <label class="form-label">通道类型</label>
+            <select class="form-input" id="chanKind" onchange="onKindChange()">
+              <option value="">— 请选择 —</option>
+            </select>
+          </div>
+          <div class="form-section">
+            <label class="form-label">名称（可选）</label>
+            <input class="form-input" id="chanName" type="text" placeholder="例如：我的 MQTT" />
+          </div>
+          <div id="chanFields"></div>
+          <button class="btn pri" id="chanCreateBtn" onclick="createChannel()">创建通道</button>
+          <button class="btn" style="background:#2d4a6a;margin-top:6px" onclick="testChannelFields()">测试连接</button>
+          <div class="settings-msg" id="chanMsg"></div>
+        </div>
+      </div>
+
+      <!-- Tab: 我的连接器 -->
+      <div class="tab-panel" id="tab-connectors">
+        <div class="chan-header">
+          <div class="chan-title">🔌 我的连接器</div>
+          <button class="btn-sm" onclick="loadConnectors()">↻ 刷新</button>
+          <button class="btn-sm primary" onclick="openConnectorModal()">＋ 添加连接器</button>
+        </div>
+        <div id="connTabs" style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap"></div>
+        <div id="connList"><div class="empty">加载中…</div></div>
+      </div>
+
+      <!-- Tab: MCP 服务器 -->
+      <div class="tab-panel" id="tab-mcp">
+        <div class="chan-header">
+          <div class="chan-title">🔗 我的 MCP 服务器</div>
+          <button class="btn-sm" onclick="loadCardMcpServers()">↻ 刷新</button>
+        </div>
+        <div id="mcpCardList"><div class="empty">加载中…</div></div>
+        <div class="chan-create" style="margin-top:16px">
+          <div class="chan-create-title">＋ 添加 MCP 服务器</div>
+          <div class="form-section">
+            <label class="form-label">服务器名称</label>
+            <input class="form-input" id="mcpAddName" type="text" placeholder="例如：my-server" />
+          </div>
+          <div class="form-section">
+            <label class="form-label">配置 JSON</label>
+            <textarea class="form-input" id="mcpAddConfig" rows="5"
+              placeholder='{"command":"npx","args":["-y","@example/server"]}'
+              style="font-family:monospace;font-size:12px;resize:vertical"></textarea>
+          </div>
+          <button class="btn pri" onclick="addCardMcpServer()">添加</button>
+          <div class="settings-msg" id="mcpCardMsg"></div>
+        </div>
+      </div>
+
+      <!-- Tab: 我的技能 -->
+      <div class="tab-panel" id="tab-skills">
+        <div class="chan-header">
+          <div class="chan-title">🛠️ 我的技能</div>
+          <button class="btn-sm" onclick="loadCardSkills()">↻ 刷新</button>
+        </div>
+        <div id="skillCardList"><div class="empty">加载中…</div></div>
+        <div class="chan-create" style="margin-top:16px">
+          <div class="chan-create-title">＋ 安装技能（ZIP 包）</div>
+          <div class="form-section">
+            <label class="form-label">ZIP 文件</label>
+            <input class="form-input" id="skillCardZip" type="file" accept=".zip" style="width:100%" />
+          </div>
+          <button class="btn pri" onclick="installCardSkill()">安装</button>
+          <div class="settings-msg" id="skillCardMsg"></div>
+        </div>
+      </div>
+
+      <!-- Tab: 个人配置 -->
+      <div class="tab-panel" id="tab-settings">
+      <div class="settings-layout">
+        <div class="settings-nav">
+          <button class="set-tab active" data-set="personal" onclick="switchSetTab('personal')">个人配置</button>
+          <button class="set-tab" data-set="admin" onclick="switchSetTab('admin')">管理员入口</button>
+        </div>
+        <div class="settings-content">
+          <div id="set-personal" class="set-panel active">
+            <div class="card">
+              <h3>个人配置</h3>
+              <div class="form-section">
+                <label class="form-label">提示词模板</label>
+                <select class="form-input" id="cfgTemplate">
+                  <option value="">不使用模板</option>
+                </select>
+                <div class="form-hint">选择内置提示词模板，将覆盖自定义提示词</div>
+              </div>
+              <div class="form-section">
+                <label class="form-label">AI 模型</label>
+                <select class="form-input" id="cfgModel">
+                  <option value="">使用全局默认</option>
+                </select>
+                <div class="form-hint">留空使用管理员配置的全局默认模型</div>
+              </div>
+              <div class="form-section">
+                <label class="form-label">API 地址（可选）</label>
+                <input class="form-input" id="cfgApiBase" type="text" placeholder="https://api.example.com/v1" />
+                <div class="form-hint">留空使用全局 API 地址</div>
+              </div>
+              <div class="form-section">
+                <label class="form-label">API Key（可选）</label>
+                <input class="form-input" id="cfgApiKey" type="password" placeholder="自定义 API Key" />
+                <div class="form-hint">留空使用全局 API Key</div>
+              </div>
+              <div class="form-section">
+                <label class="form-label">系统提示词（可选）</label>
+                <textarea class="form-input" id="cfgPrompt" rows="3" placeholder="自定义系统提示词"></textarea>
+                <div class="form-hint">留空使用管理员配置的全局提示词</div>
+              </div>
+              <div class="form-section" style="margin-top:16px">
+                <button class="btn pri" id="saveSettingsBtn" onclick="saveUserConfig()">保存配置</button>
+              </div>
+              <div class="settings-msg" id="settingsMsg"></div>
+            </div>
+          </div>
+          <div id="set-admin" class="set-panel">
+            <div class="card">
+              <h3>管理员入口</h3>
+              <p style="color:var(--bt-text-2);font-size:13px;margin:12px 0">以下链接需要管理员权限，仅供内部使用。</p>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+                <a class="link" href="/static/card-admin.html" target="_blank" style="font-size:14px">🔐 卡密管理后台 →</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
     </div>
   </div>
 </div>
@@ -214,7 +456,6 @@
 const TOKEN_KEY = 'bt_agent_token'
 let currentPrefix = ''
 let currentOwner = ''
-let botTimer = null
 
 function getToken() { try { return localStorage.getItem(TOKEN_KEY) || '' } catch(e) { return '' } }
 function setToken(t) { try { localStorage.setItem(TOKEN_KEY, t) } catch(e) {} }
@@ -243,7 +484,8 @@ async function login() {
     currentOwner = owner || ''
     // Show success view
     document.getElementById('loginForm').style.display = 'none'
-    document.getElementById('welcomeTitle').textContent = '🎉 登录成功，' + prefix
+    document.querySelector('.wrap').classList.remove('login-mode')
+    document.getElementById('welcomeBadge').textContent = '👤 ' + prefix
     document.getElementById('infoPrefix').textContent = prefix
     document.getElementById('infoOwner').textContent = currentOwner || '未设置'
     // 设置有效期显示
@@ -273,8 +515,7 @@ async function login() {
       createdEl.textContent = created_at || '—'
     }
     document.getElementById('successView').style.display = 'block'
-    // Start bot QR polling
-    setTimeout(() => startBotPoll(), 500)
+    setTimeout(() => loadChannels(), 300)
   } catch(e) {
     showErr('网络错误')
     btn.disabled = false; btn.textContent = '登录'
@@ -291,56 +532,361 @@ document.getElementById('cardKey').addEventListener('input', e => {
 
 function doLogout() {
   if (!confirm('确定退出？')) return
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem('ai_card_prefix')
-  localStorage.removeItem('ai_session_id')
-  if (botTimer) clearInterval(botTimer)
+  try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem('ai_card_prefix'); localStorage.removeItem('ai_card_owner'); localStorage.removeItem('ai_card_expires'); localStorage.removeItem('ai_card_created'); localStorage.removeItem('ai_card_activated'); localStorage.removeItem('ai_session_id'); } catch(e) {}
   location.href = '/static/card-login.html'
 }
 
-function startBotPoll() {
-  fetchQr()
-  botTimer = setInterval(fetchStatus, 3000)
+function toggleTheme() {
+  var html = document.documentElement
+  var isDark = html.getAttribute('data-theme') === 'dark'
+  var next = isDark ? 'light' : 'dark'
+  html.setAttribute('data-theme', next)
+  try { localStorage.setItem('bt_theme', next) } catch (e) {}
+  var btn = document.getElementById('themeBtn')
+  if (btn) btn.textContent = next === 'dark' ? '☀️' : '🌙'
 }
 
-async function fetchQr() {
-  const wrap = document.getElementById('qrWrap')
-  wrap.innerHTML = '<span class="spinner"></span>'
-  try {
-    const r = await fetch('/api/mp/bot/qrcode', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() }
-    })
-    const res = await r.json()
-    if (!res.status || !res.data?.qr_payload) {
-      document.getElementById('botStatus').textContent = res.msg || '获取二维码失败'
-      return
-    }
-    const qr = res.data.qr_payload
-    wrap.innerHTML = `<img src="${qr.startsWith('data:') ? qr : 'data:image/png;base64,' + qr}" alt="QR Code">`
-    document.getElementById('botStatus').textContent = '用微信扫描二维码，绑定专属机器人'
-  } catch(e) {
-    document.getElementById('botStatus').textContent = '获取二维码失败'
-  }
+
+// ========== Tab 切换 ==========
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name))
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name))
+  if (name === 'channels') loadChannels()
+  if (name === 'connectors') loadConnectors()
+  if (name === 'mcp') loadCardMcpServers()
+  if (name === 'skills') loadCardSkills()
 }
 
-async function fetchStatus() {
+function switchSetTab(name) {
+  document.querySelectorAll('.set-tab').forEach(function (b) {
+    b.classList.toggle('active', b.getAttribute('data-set') === name)
+  })
+  document.querySelectorAll('.set-panel').forEach(function (p) {
+    p.classList.toggle('active', p.id === 'set-' + name)
+  })
+}
+
+// ========== 通道管理 ==========
+let _chanTypes = {}
+let _chanTypesLoaded = false
+
+async function loadChannelTypes() {
+  if (_chanTypesLoaded) return
   try {
-    const r = await fetch('/api/mp/bot/status', {
+    const r = await fetch('/api/v2/card/channels/types', {
       headers: { 'Authorization': 'Bearer ' + getToken() }
     })
     const res = await r.json()
     if (!res.status) return
-    const st = res.data?.status
-    if (st === 'active' || st === 'scaned') {
-      clearInterval(botTimer)
-      document.getElementById('botStatus').textContent = '✅ 机器人已连接！在微信中搜索 clawbot 即可对话'
-    } else if (st === 'expired') {
-      clearInterval(botTimer)
-      fetchQr()
-      botTimer = setInterval(fetchStatus, 3000)
+    _chanTypes = res.data.types || {}
+    _chanTypesLoaded = true
+    const sel = document.getElementById('chanKind')
+    sel.innerHTML = '<option value="">— 请选择 —</option>' +
+      Object.keys(_chanTypes).map(k =>
+        '<option value="' + esc(k) + '">' + esc(_chanTypes[k].label || k) + '</option>').join('')
+  } catch (e) { console.warn('loadChannelTypes failed', e) }
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+}
+
+function onKindChange() {
+  const kind = document.getElementById('chanKind').value
+  const box = document.getElementById('chanFields')
+  if (!kind || !_chanTypes[kind]) { box.innerHTML = ''; return }
+  const meta = _chanTypes[kind]
+  box.innerHTML = (meta.config_fields || []).map(f => {
+    const req = f.required ? ' <span style="color:#e5636a">*</span>' : ''
+    const ph = f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : ''
+    if (f.type === 'select') {
+      const opts = (f.options || []).map(o =>
+        '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>').join('')
+      return '<div class="form-section"><label class="form-label">' + esc(f.name) + req + '</label>' +
+        '<select class="form-input" data-field="' + esc(f.name) + '">' + opts + '</select></div>'
     }
-  } catch(e) {}
+    const type = f.type === 'password' ? 'password' : (f.type === 'number' ? 'number' : 'text')
+    return '<div class="form-section"><label class="form-label">' + esc(f.name) + req + '</label>' +
+      '<input class="form-input" type="' + type + '" data-field="' + esc(f.name) + '"' + ph + ' /></div>'
+  }).join('') || '<div class="form-hint">该通道无需额外配置</div>'
+}
+
+async function loadChannels() {
+  const el = document.getElementById('chanList')
+  if (!el) return
+  await loadChannelTypes()
+  el.innerHTML = '<div class="empty">加载中…</div>'
+  try {
+    const r = await fetch('/api/v2/card/channels', {
+      headers: { 'Authorization': 'Bearer ' + getToken() }
+    })
+    const res = await r.json()
+    if (!res.status) { el.innerHTML = '<div class="empty">加载失败：' + esc(res.msg || '') + '</div>'; return }
+    const chans = res.data.channels || []
+    if (!chans.length) { el.innerHTML = '<div class="empty">暂无通道，在下方新建</div>'; return }
+    el.innerHTML = chans.map(c => {
+      const badge = c.running
+        ? '<span class="chan-badge on">运行中</span>'
+        : '<span class="chan-badge off">已停止</span>'
+      const cfgHint = c.configured ? '' : ' · <span style="color:#e5a03a">未配置完整</span>'
+      const actionBtns = []
+      if (c.supported_qr) {
+        actionBtns.push('<button class="btn-sm" onclick="qrBindChannel(\'' + esc(c.kind) + '\',\'' + esc(c.channel_id) + '\')">📱 扫码</button>')
+      }
+      actionBtns.push(
+        '<button class="btn-sm" onclick="testChannel(\'' + esc(c.channel_id) + '\')">测试</button>',
+        c.running
+          ? '<button class="btn-sm" onclick="stopChannel(\'' + esc(c.channel_id) + '\')">停止</button>'
+          : '<button class="btn-sm" onclick="startChannel(\'' + esc(c.channel_id) + '\')">启动</button>',
+        '<button class="btn-sm" onclick="deleteChannel(\'' + esc(c.channel_id) + '\',\'' + esc(c.name) + '\')">删除</button>'
+      )
+      const actionBtnsHtml = actionBtns.join('')
+      return '<div class="chan-item">' +
+        '<div class="chan-item-info">' +
+          '<div class="chan-item-name">' + esc(c.name) + badge + '</div>' +
+          '<div class="chan-item-meta">' + esc(c.label || c.kind) + cfgHint + '</div>' +
+        '</div>' +
+        '<div class="chan-actions">' + actionBtnsHtml + '</div>' +
+      '</div>'
+    }).join('')
+  } catch (e) {
+    el.innerHTML = '<div class="empty">⚠️ ' + esc(e.message) + '</div>'
+  }
+}
+
+async function createChannel() {
+  const btn = document.getElementById('chanCreateBtn')
+  const msg = document.getElementById('chanMsg')
+  const kind = document.getElementById('chanKind').value
+  const name = document.getElementById('chanName').value.trim()
+  if (!kind) { msg.textContent = '请选择通道类型'; msg.className = 'settings-msg err'; return }
+  if (!name) { msg.textContent = '请输入通道名称'; msg.className = 'settings-msg err'; return }
+
+  // 必填字段前向校验
+  const meta = _chanTypes[kind]
+  if (meta && meta.config_fields) {
+    const missing = []
+    for (const f of meta.config_fields) {
+      if (f.required) {
+        const el = document.querySelector('#chanFields [data-field="' + f.name + '"]')
+        if (!el || !el.value.trim()) missing.push(f.label || f.name)
+      }
+    }
+    if (missing.length) { msg.textContent = '请填写必填字段：' + missing.join('、'); msg.className = 'settings-msg err'; return }
+  }
+
+  const config = {}
+  document.querySelectorAll('#chanFields [data-field]').forEach(el => {
+    const v = el.value.trim()
+    if (v) config[el.dataset.field] = el.value
+  })
+
+  btn.disabled = true
+  msg.textContent = '创建中…'; msg.className = 'settings-msg'
+  try {
+    const r = await fetch('/api/v2/card/channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+      body: JSON.stringify({ kind, name, config })
+    })
+    const res = await r.json()
+    if (res.status) {
+      msg.textContent = '✅ 已创建：' + (res.data.name || kind)
+      msg.className = 'settings-msg ok'
+      document.getElementById('chanName').value = ''
+      document.getElementById('chanKind').value = ''
+      document.getElementById('chanFields').innerHTML = ''
+      loadChannels()
+    } else {
+      msg.textContent = '❌ ' + (res.msg || '创建失败')
+      msg.className = 'settings-msg err'
+    }
+  } catch (e) {
+    msg.textContent = '❌ 网络错误'
+    msg.className = 'settings-msg err'
+  }
+  btn.disabled = false
+}
+
+async function testChannel(chid) {
+  try {
+    const r = await fetch('/api/v2/card/channels/' + chid + '/test', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + getToken() }
+    })
+    const res = await r.json()
+    if (res.status) {
+      alert('✅ 测试通过：' + (res.data?.message || '凭据格式正确，SDK 可用'))
+    } else {
+      alert('❌ 测试失败：' + (res.msg || '未知错误'))
+    }
+  } catch (e) { alert('网络错误: ' + e.message) }
+}
+
+async function testChannelFields() {
+  const kind = document.getElementById('chanKind').value
+  if (!kind) {
+    const msg = document.getElementById('chanMsg')
+    msg.textContent = '请先选择通道类型'
+    msg.className = 'settings-msg err'
+    return
+  }
+  const config = {}
+  document.querySelectorAll('#chanFields [data-field]').forEach(el => {
+    const v = el.value.trim()
+    if (v) config[el.dataset.field] = el.value
+  })
+  const msg = document.getElementById('chanMsg')
+  msg.textContent = '测试中…'
+  msg.className = 'settings-msg'
+  try {
+    const r = await fetch('/api/v2/card/channels/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+      body: JSON.stringify({ kind, config })
+    })
+    const res = await r.json()
+    if (res.status) {
+      msg.textContent = '✅ ' + (res.data?.message || '测试通过')
+      msg.className = 'settings-msg ok'
+    } else {
+      msg.textContent = '❌ ' + (res.msg || '测试失败')
+      msg.className = 'settings-msg err'
+    }
+  } catch (e) {
+    msg.textContent = '❌ 网络错误'
+    msg.className = 'settings-msg err'
+  }
+}
+
+async function startChannel(chid) {
+  try {
+    const r = await fetch('/api/v2/card/channels/' + chid + '/start', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + getToken() }
+    })
+    const res = await r.json()
+    if (!res.status) alert(res.msg || '启动失败')
+    loadChannels()
+  } catch (e) { alert('网络错误: ' + e.message) }
+}
+
+async function stopChannel(chid) {
+  try {
+    const r = await fetch('/api/v2/card/channels/' + chid + '/stop', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + getToken() }
+    })
+    const res = await r.json()
+    if (!res.status) alert(res.msg || '停止失败')
+    loadChannels()
+  } catch (e) { alert('网络错误: ' + e.message) }
+}
+
+// ── 扫码绑定通道（dingtalk/qq/wecom/weixin）────────────────
+let _qrSession = null
+let _qrPollTimer = null
+
+async function qrBindChannel(kind, channel_id) {
+  // 打开/复用弹窗
+  let modal = document.getElementById('chanQrModal')
+  if (!modal) {
+    modal = document.createElement('div')
+    modal.id = 'chanQrModal'
+    modal.className = 'chan-qr-modal'
+    modal.innerHTML = '<div class="chan-qr-box">' +
+      '<div class="chan-qr-hd">' +
+        '<strong id="chanQrTitle">扫码绑定</strong>' +
+        '<button class="btn ghost" onclick="closeChanQrModal()" style="border:none;background:transparent;font-size:18px;padding:0">✕</button>' +
+      '</div>' +
+      '<div id="chanQrBody" style="text-align:center"></div>' +
+      '<div id="chanQrStatus" class="chan-qr-status"></div>' +
+    '</div>'
+    modal.onclick = function (e) { if (e.target === modal) closeChanQrModal() }
+    document.body.appendChild(modal)
+  }
+  modal.classList.add('show')
+  document.getElementById('chanQrTitle').textContent = kind + ' 扫码绑定'
+  document.getElementById('chanQrBody').innerHTML = '<div class="spinner"></div> 正在生成二维码…'
+  document.getElementById('chanQrStatus').textContent = ''
+  try {
+    const r = await fetch('/api/v2/card/channels/' + encodeURIComponent(kind) + '/qrcode/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+      body: JSON.stringify({ instance_id: channel_id })
+    })
+    const res = await r.json()
+    if (!res.status) throw new Error(res.msg || '生成失败')
+    const d = res.data
+    const token = d.qrcode_token || d.scode || d.device_code || ''
+    _qrSession = { kind, channel_id, token, done: false }
+    _renderQrBody(d)
+    if (_qrPollTimer) clearInterval(_qrPollTimer)
+    _qrPollTimer = setInterval(qrPollOnce, 3000)
+  } catch (e) {
+    document.getElementById('chanQrBody').innerHTML = '<div style="color:#e5636a;padding:20px">⚠️ ' + esc(e.message) + '</div>'
+  }
+}
+
+function _renderQrBody(d) {
+  const body = document.getElementById('chanQrBody')
+  if (d.qrcode_image && d.qrcode_image.startsWith('data:image/')) {
+    const uri = d.qrcode_url || d.verification_uri_complete || '#'
+    const linkHint = /^https?:\/\//.test(uri)
+      ? '<div class="chan-qr-hint"><a href="' + esc(uri) + '" target="_blank">打不开二维码？点击打开</a></div>' : ''
+    body.innerHTML = '<img src="' + esc(d.qrcode_image) + '" class="chan-qr-img">' +
+      '<div class="chan-qr-hint">请用手机扫码绑定</div>' + linkHint
+  } else if (d.verification_uri_complete) {
+    body.innerHTML = '<div class="chan-qr-hint"><a href="' + esc(d.verification_uri_complete) + '" target="_blank">打开授权页面</a></div>' +
+      (d.user_code ? '<div style="font-size:24px;font-weight:700;letter-spacing:4px;margin:12px 0">' + esc(d.user_code) + '</div>' : '') +
+      '<div class="chan-qr-hint">输入上方用户码完成授权</div>'
+  } else {
+    body.innerHTML = '<div style="padding:20px;color:var(--bt-text-2)">等待扫码…</div>'
+  }
+}
+
+function qrPollOnce() {
+  if (!_qrSession || _qrSession.done) return
+  const s = _qrSession
+  const status = document.getElementById('chanQrStatus')
+  fetch('/api/v2/card/channels/' + encodeURIComponent(s.kind) + '/qrcode/poll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+    body: JSON.stringify({ token: s.token, instance_id: s.channel_id })
+  }).then(r => r.json()).then(res => {
+    if (!res.status) throw new Error(res.msg || '轮询失败')
+    const d = res.data
+    if (d.status === 'success') {
+      s.done = true
+      if (_qrPollTimer) { clearInterval(_qrPollTimer); _qrPollTimer = null }
+      status.innerHTML = '<span style="color:#16a34a">✓ 绑定成功，凭据已写入</span>'
+      setTimeout(function () { closeChanQrModal(); loadChannels() }, 1200)
+    } else if (d.status === 'expired' || d.status === 'error') {
+      s.done = true
+      if (_qrPollTimer) { clearInterval(_qrPollTimer); _qrPollTimer = null }
+      status.textContent = '✗ ' + (d.message || '绑定失败')
+    } else {
+      status.textContent = '等待扫码…'
+    }
+  }).catch(e => {
+    status.textContent = '轮询出错: ' + e.message
+  })
+}
+
+function closeChanQrModal() {
+  const modal = document.getElementById('chanQrModal')
+  if (modal) modal.classList.remove('show')
+  if (_qrPollTimer) { clearInterval(_qrPollTimer); _qrPollTimer = null }
+  _qrSession = null
+}
+
+async function deleteChannel(chid, name) {
+  if (!confirm('确定删除通道「' + name + '」？')) return
+  try {
+    const r = await fetch('/api/v2/card/channels/' + chid, {
+      method: 'DELETE', headers: { 'Authorization': 'Bearer ' + getToken() }
+    })
+    const res = await r.json()
+    if (!res.status) alert(res.msg || '删除失败')
+    loadChannels()
+  } catch (e) { alert('网络错误: ' + e.message) }
 }
 
 // ========== 用户配置 ==========
@@ -469,7 +1015,8 @@ window.addEventListener('DOMContentLoaded', () => {
   if (token) {
     currentPrefix = localStorage.getItem('ai_card_prefix') || ''
     document.getElementById('loginForm').style.display = 'none'
-    document.getElementById('welcomeTitle').textContent = '🎉 登录成功，' + currentPrefix
+    document.querySelector('.wrap').classList.remove('login-mode')
+    document.getElementById('welcomeBadge').textContent = '👤 ' + currentPrefix
     document.getElementById('infoPrefix').textContent = currentPrefix
     document.getElementById('infoOwner').textContent = localStorage.getItem('ai_card_owner') || '未设置'
     // 恢复有效期显示
@@ -494,11 +1041,654 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     document.getElementById('successView').style.display = 'block'
     setTimeout(() => {
-      startBotPoll()
+      loadChannels()
       loadUserConfig()
-    }, 500)
+    }, 300)
   }
 })
+
+// 连接器弹窗
+document.addEventListener('DOMContentLoaded', function () {
+  const modal = document.createElement('div')
+  modal.id = 'connModalBg'
+  modal.className = 'modal-bg'
+  modal.innerHTML = '<div class="modal">' +
+    '<div class="mh">' +
+      '<div class="icon" id="connModalIcon" style="width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700"></div>' +
+      '<h3 id="connModalTitle">添加连接器</h3>' +
+      '<button class="btn ghost" onclick="closeConnModal()">✕</button>' +
+    '</div>' +
+    '<div class="mb" id="connModalBody"></div>' +
+    '<div class="mf">' +
+      '<button class="btn ghost" onclick="closeConnModal()">取消</button>' +
+      '<button class="btn" id="connModalAuth" style="display:none">🔐 登录授权</button>' +
+      '<button class="btn" id="connModalTest">测试凭据</button>' +
+      '<button class="btn primary" id="connModalSave">保存</button>' +
+    '</div>' +
+  '</div>'
+  document.body.appendChild(modal)
+  modal.onclick = function (e) { if (e.target === modal) closeConnModal() }
+})
+
+// ========== 我的连接器 ==========
+let _connCatalog = null
+let _connInstances = []
+let _connCatMap = {}       // kind -> connector 对象（查找用）
+let _connList = []         // 全部 connector 数组（渲染用）
+let _connByCat = {}        // category -> [connector]
+let _currentConnCat = 'all'
+
+async function loadConnectors() {
+  try {
+    // 加载目录
+    if (!_connCatalog) {
+      const r = await fetch('/api/v2/connectors/catalog?locale=zh', {
+        headers: { 'Authorization': 'Bearer ' + getToken() }
+      })
+      const res = await r.json()
+      if (!res.status) return
+      _connCatalog = res.data || {}
+      _connCatMap = {}
+      _connList = []
+      _connByCat = {}
+      for (const c of (_connCatalog.connectors || [])) {
+        if (!c || !c.kind) continue
+        _connCatMap[c.kind] = c
+        _connList.push(c)
+        const cat = c.category || 'other'
+        ;(_connByCat[cat] || (_connByCat[cat] = [])).push(c)
+      }
+    }
+    // 加载实例
+    const r2 = await fetch('/api/v2/connectors/instances', {
+      headers: { 'Authorization': 'Bearer ' + getToken() }
+    })
+    const res2 = await r2.json()
+    _connInstances = (res2.data && res2.data.instances) || []
+    _renderConnTabs()
+    _renderConnList()
+  } catch (e) {
+    document.getElementById('connList').innerHTML = '<div class="empty">⚠️ ' + esc(e.message) + '</div>'
+  }
+}
+
+function _renderConnTabs() {
+  const cats = ['all', ...Object.keys(_connByCat)]
+  const el = document.getElementById('connTabs')
+  if (!el) return
+  el.innerHTML = cats.map(c => {
+    const label = c === 'all' ? '全部'
+      : (c === 'office' ? '办公' : c === 'search' ? '搜索' : c === 'social' ? '社交' : c)
+    const active = _currentConnCat === c ? 'active' : ''
+    return '<button class="btn-sm ' + active + '" onclick="filterConnCat(\'' + esc(c) + '\')">' + esc(label) + '</button>'
+  }).join('')
+}
+
+function filterConnCat(cat) {
+  _currentConnCat = cat
+  _renderConnTabs()
+  _renderConnList()
+}
+
+function _colorOf(e) { return e.color || '#666' }
+function _initial(e) { return (e.name || e.kind || '?')[0].toUpperCase() }
+
+function _renderConnList() {
+  const el = document.getElementById('connList')
+  if (!el) return
+  const cats = _currentConnCat === 'all'
+    ? _connList
+    : (_connByCat[_currentConnCat] || [])
+  // 按 category 分组
+  const grouped = {}
+  for (const c of cats) {
+    const cat = c.category || 'other'
+    ;(grouped[cat] || (grouped[cat] = [])).push(c)
+  }
+  let html = ''
+  for (const cat of Object.keys(grouped).sort()) {
+    const items = grouped[cat]
+    html += '<h4 style="margin:10px 0 6px;font-size:13px;color:var(--bt-text-3)">' + esc(cat) + ' (' + items.length + ')</h4><div class="grid">'
+    for (const c of items) {
+      const hasInst = _connInstances.some(i => i.kind === c.kind)
+      const badge = hasInst
+        ? '<span class="badge ok" style="font-size:11px">已添加</span>'
+        : '<span class="badge no" style="font-size:11px">未配置</span>'
+      html += '<div class="card" style="cursor:pointer" onclick="openConnectorModal(\'' + esc(c.kind) + '\')">' +
+        '<div class="hd"><div class="icon" style="background:' + _colorOf(c) + '">' + _initial(c) + '</div>' +
+        '<div style="flex:1;min-width:0"><div class="nm">' + esc(c.name || c.kind) + '</div>' +
+        '<div class="kind">' + esc((c.description || {}).zh || c.description || c.kind || '') + '</div></div>' +
+        '<div>' + badge + '</div></div>'
+      // 授权入口按钮（OAuth2 一键授权 / CLI 登录授权 / 其他获取凭证）
+      if (c.auth_kind === 'oauth2') {
+        const supportsManual = (c.credential_fields || []).some(function(f){ return f.key === 'manual_token' })
+        html += '<div class="ft" style="padding:6px 8px;display:flex;gap:6px;flex-wrap:wrap">'
+        html += '<button class="btn-sm primary" onclick="event.stopPropagation();startConnOAuth2(\'' + esc(c.kind) + '\')">⚡ 一键授权</button>'
+        if (supportsManual) html += '<button class="btn-sm" onclick="event.stopPropagation();openConnectorModal(\'' + esc(c.kind) + '\',null,true)">手动粘贴 Token</button>'
+        html += '</div>'
+      } else if (c.auth_kind === 'oauth') {
+        // WorkBuddy 导入的 oauth 连接器：无标准 OAuth 发现，走手动粘贴 access_token 兜底
+        html += '<div class="ft" style="padding:6px 8px;display:flex;gap:6px;flex-wrap:wrap">'
+        html += '<button class="btn-sm primary" onclick="event.stopPropagation();openConnectorModal(\'' + esc(c.kind) + '\',null,true)">+ 添加（粘贴 Token）</button>'
+        html += '</div>'
+      } else {
+        const authUrl = c.quick_auth_url || c.manual_url || c.guide_url || ''
+        const btns = []
+        // CLI 类连接器（飞书/企微等）：支持设备码登录授权
+        if (c.login_url) {
+          btns.push('<button class="btn-sm primary" onclick="event.stopPropagation();startCliAuth(\'' + esc(c.kind) + '\')">🔐 登录授权</button>')
+        }
+        if (authUrl) {
+          btns.push('<button class="btn-sm" onclick="event.stopPropagation();window.open(\'' + esc(authUrl) + '\',\'_blank\')">🔗 获取凭证</button>')
+        }
+        if (btns.length) {
+          html += '<div class="ft" style="padding:6px 8px;display:flex;gap:6px;flex-wrap:wrap">' + btns.join('') + '</div>'
+        }
+      }
+      html += '</div>'
+    }
+    html += '</div>'
+  }
+  if (!html) html = '<div class="empty">暂无连接器</div>'
+  el.innerHTML = html
+}
+
+// ── 连接器弹窗（复用 connectors.html 字段渲染逻辑）────────────────
+let _connModalKind = null
+let _connModalEditId = null
+let _connModalManualOAuth2 = false  // 是否从「手动粘贴 Token」入口进入
+
+function openConnectorModal(kind, editId, manualOAuth2) {
+  _connModalKind = kind || null
+  _connModalEditId = editId || null
+  _connModalManualOAuth2 = !!manualOAuth2
+  _renderConnModal()
+  document.getElementById('connModalBg').classList.add('show')
+}
+
+function closeConnModal() {
+  document.getElementById('connModalBg').classList.remove('show')
+  _connModalKind = null
+  _connModalEditId = null
+  _connModalManualOAuth2 = false
+}
+
+async function _renderConnModal() {
+  const kind = _connModalKind
+  if (!kind) return
+  const entry = _connCatMap[kind]
+  if (!entry) return
+  const inst = _connModalEditId ? (_connInstances.find(i => i.instance_id === _connModalEditId) || null) : null
+  const fields = entry.credential_fields || []
+
+  // 编辑时拉实例详情拿 creds（列表接口不含凭据），secret 字段后端已脱敏为 ***
+  let existingCreds = {}
+  if (inst) {
+    try {
+      const r = await fetch('/api/v2/connectors/instances/' + encodeURIComponent(inst.instance_id), {
+        headers: { 'Authorization': 'Bearer ' + getToken() }
+      })
+      const res = await r.json()
+      if (res.status && res.data) {
+        existingCreds = res.data.creds || res.data.creds_decoded || res.data.credentials || {}
+      }
+    } catch (e) {
+      console.warn('card-login: 拉实例详情失败', e)
+    }
+  }
+
+  let body = ''
+  if (entry.auth_hint) {
+    const hint = typeof entry.auth_hint === 'object' ? (entry.auth_hint.zh || entry.auth_hint.en || '') : entry.auth_hint
+    body += '<div class="hint" style="margin-bottom:14px;padding:10px;background:var(--bt-surface-2);border-radius:8px">💡 ' + esc(hint) + '</div>'
+  }
+  body += '<div class="field"><label>实例名称</label><input id="c_name" placeholder="' + esc(entry.name || kind) + '" value=""></div>'
+
+  function fieldHtml(key, label, opts) {
+    opts = opts || {}
+    const isSecret = opts.secret || false
+    const isUrl = opts.fieldType === 'url'
+    const isTags = opts.fieldType === 'tags'
+    const isTextarea = isTags || opts.fieldType === 'textarea'
+    const ph = opts.placeholder || ''
+    const help = opts.help || ''
+    const req = opts.required !== false
+    const stored = inst && existingCreds[key] !== undefined && existingCreds[key] !== null && existingCreds[key] !== ''
+    let h = '<div class="field"><label>' + esc(label) + (req ? ' <span class="req">*</span>' : '') + '</label>'
+    const phText = stored ? '已配置，留空不修改' : ph
+    if (isTextarea) {
+      h += '<textarea id="c_' + esc(key) + '" rows="2" placeholder="' + esc(phText) + '"></textarea>'
+    } else {
+      h += '<input id="c_' + esc(key) + '" type="' + (isSecret ? 'password' : isUrl ? 'url' : 'text') + '" placeholder="' + esc(phText) + '">'
+    }
+    if (help) h += '<div class="hint">' + esc(help) + '</div>'
+    if (isTags) h += '<div class="hint">用逗号分隔多个值，例如 kb-123, kb-456</div>'
+    if (stored) h += '<div class="hint">已配置，留空不修改</div>'
+    h += '</div>'
+    return h
+  }
+
+  function renderField(f) {
+    const label = typeof f.label === 'object' ? (f.label.zh || f.label.en || f.key) : (f.label || f.key)
+    const ph = typeof f.placeholder === 'object' ? (f.placeholder.zh || f.placeholder.en || '') : (f.placeholder || '')
+    const help = typeof f.help === 'object' ? (f.help.zh || f.help.en || '') : (f.help || '')
+    body += fieldHtml(f.key, label, {
+      placeholder: ph, secret: f.secret || f.field_type === 'password',
+      fieldType: f.field_type, required: f.required !== false, help: help
+    })
+  }
+
+  if (entry.auth_kind === 'oauth2') {
+    // OAuth2 优先走一键授权；仅当从「手动粘贴」入口进入时才渲染 manual_token
+    const manualFields = fields.filter(function (f) { return f.key === 'manual_token' })
+    body += '<div class="hint" style="padding:12px;background:var(--bt-surface-2);border-radius:8px">' +
+      '该连接器使用 OAuth2 授权，请点击卡片上的「⚡ 一键授权」完成登录。' +
+      (manualFields.length ? '若一键授权不可用，也可在下方手动粘贴 Token 保存。' : '当前连接器不支持手动粘贴 Token。') +
+      '</div>'
+    if (_connModalManualOAuth2) {
+      if (manualFields.length) {
+        manualFields.forEach(renderField)
+      } else {
+        body += fieldHtml('manual_token', 'Access Token', {
+          placeholder: '粘贴 Access Token', secret: true, required: true,
+          help: '手动粘贴的 Token 会作为 OAuth2 凭据保存'
+        })
+      }
+    }
+  } else if (entry.auth_kind === 'oauth') {
+    // WorkBuddy 导入的 oauth 连接器：无标准 OAuth 发现，手动粘贴 access_token 兜底接入
+    body += '<div class="hint" style="padding:12px;background:var(--bt-surface-2);border-radius:8px">' +
+      '该连接器使用 OAuth 授权。请先获取 access_token，再手动粘贴到下方保存即可接入。' +
+      '</div>'
+    body += fieldHtml('manual_token', 'Access Token', {
+      placeholder: '粘贴 Access Token', secret: true, required: true,
+      help: '粘贴 OAuth access_token（可带 Bearer 前缀）'
+    })
+  } else if (fields.length) {
+    for (const f of fields) renderField(f)
+  } else {
+    body += '<div class="field"><label>凭据</label><input id="c_token" type="password" placeholder="粘贴 Token 或 API Key"></div>'
+  }
+
+  // 弹窗底部：非 OAuth2 连接器显示授权页快捷入口
+  const entryAuthUrl = entry.quick_auth_url || entry.manual_url || entry.guide_url || ''
+  if (entryAuthUrl && entry.auth_kind !== 'oauth2') {
+    body += '<div class="hint" style="margin-top:10px;padding:8px 10px;background:var(--bt-surface-2);border-radius:8px">' +
+      '<a href="' + esc(entryAuthUrl) + '" target="_blank" rel="noopener" style="color:var(--bt-primary);text-decoration:underline">' +
+      '🔗 ' + (entry.auth_hint ? (typeof entry.auth_hint === 'object' ? (entry.auth_hint.zh || entry.auth_hint.en || '') : entry.auth_hint) : '点击获取凭据') +
+      '</a></div>'
+  }
+
+  const title = inst ? '编辑：' + (entry.name || kind) : '添加：' + (entry.name || kind)
+  document.getElementById('connModalTitle').textContent = title
+  document.getElementById('connModalIcon').style.background = _colorOf(entry)
+  document.getElementById('connModalIcon').textContent = _initial(entry)
+  document.getElementById('connModalBody').innerHTML = body
+
+  // 回填非 secret 字段（已配置的不回填避免覆盖用户输入）
+  if (inst && Object.keys(existingCreds).length) {
+    Object.keys(existingCreds).forEach(k => {
+      const el = document.getElementById('c_' + k)
+      if (el && el.type !== 'password') {
+        el.value = existingCreds[k] || ''
+      }
+    })
+  }
+
+  const mSave = document.getElementById('connModalSave')
+  const mTest = document.getElementById('connModalTest')
+  if (mSave) mSave.onclick = _saveConnInstance
+  if (mTest) mTest.onclick = _testConnCreds
+
+  // CLI 连接器（飞书等）：显示「登录授权」按钮
+  const mAuth = document.getElementById('connModalAuth')
+  if (mAuth) {
+    if (entry.login_url) {
+      mAuth.style.display = ''
+      mAuth.textContent = inst ? '🔐 重新登录授权' : '🔐 登录授权'
+      mAuth.onclick = function () {
+        // 弹窗内：优先用表单里填的 App ID / Secret，缺则用已存的
+        const formCreds = _collectConnCreds()
+        const appId = formCreds.app_id || existingCreds.app_id || ''
+        const appSecret = formCreds.app_secret || existingCreds.app_secret || ''
+        if (!appId || !appSecret) {
+          toast('请先填写 App ID 与 App Secret', 'err')
+          return
+        }
+        closeConnModal()
+        // 直接把凭据传过去，不用 _connInstances（列表接口没有 creds）
+        startCliAuth(kind, { app_id: appId, app_secret: appSecret })
+      }
+    } else {
+      mAuth.style.display = 'none'
+      mAuth.onclick = null
+    }
+  }
+}
+
+function _collectConnCreds() {
+  const creds = {}
+  const tokenEl = document.getElementById('c_token')
+  if (tokenEl && tokenEl.value.trim()) { creds.token = tokenEl.value.trim(); return creds }
+  for (const el of document.querySelectorAll('#connModalBody input[id^="c_"], #connModalBody textarea[id^="c_"]')) {
+    const key = el.id.replace(/^c_/, '')
+    const v = el.value.trim()
+    if (v) creds[key] = v
+  }
+  return creds
+}
+
+async function _saveConnInstance() {
+  const kind = _connModalKind
+  const name = (document.getElementById('c_name') || {}).value.trim() || kind
+  const creds = _collectConnCreds()
+  const url = _connModalEditId
+    ? '/api/v2/connectors/instances/' + encodeURIComponent(_connModalEditId)
+    : '/api/v2/connectors/instances'
+  const method = _connModalEditId ? 'PATCH' : 'POST'
+  try {
+    const r = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+      body: JSON.stringify({ kind, name, credentials: creds })
+    })
+    const res = await r.json()
+    if (res.status) {
+      closeConnModal()
+      loadConnectors()
+    } else {
+      alert('保存失败：' + (res.msg || '未知错误'))
+    }
+  } catch (e) {
+    alert('请求失败：' + e.message)
+  }
+}
+
+async function _testConnCreds() {
+  const kind = _connModalKind
+  const creds = _collectConnCreds()
+  try {
+    const r = await fetch('/api/v2/connectors/test-credentials', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+      body: JSON.stringify({ kind, credentials: creds })
+    })
+    const res = await r.json()
+    alert(res.status ? ('✅ 凭据可用' + (res.data && res.data.tool_count ? '（' + res.data.tool_count + ' 工具）' : '')) : ('❌ ' + (res.msg || '失败')))
+  } catch (e) {
+    alert('测试失败：' + e.message)
+  }
+}
+
+// ── CLI 设备码登录授权（飞书 lark-cli）───────────────────────
+let _cliAuthSession = null
+let _cliAuthPollTimer = null
+
+async function startCliAuth(kind, overrideCreds) {
+  // 复用 / 打开扫码弹窗
+  let modal = document.getElementById('cliAuthModal')
+  if (!modal) {
+    modal = document.createElement('div')
+    modal.id = 'cliAuthModal'
+    modal.className = 'chan-qr-modal'
+    modal.innerHTML = '<div class="chan-qr-box">' +
+      '<div class="chan-qr-hd">' +
+        '<strong id="cliAuthTitle">登录授权</strong>' +
+        '<button class="btn ghost" onclick="closeCliAuthModal()" style="border:none;background:transparent;font-size:18px;padding:0">✕</button>' +
+      '</div>' +
+      '<div id="cliAuthBody" style="text-align:center"></div>' +
+      '<div id="cliAuthStatus" class="chan-qr-status"></div>' +
+    '</div>'
+    modal.onclick = function (e) { if (e.target === modal) closeCliAuthModal() }
+    document.body.appendChild(modal)
+  }
+  modal.classList.add('show')
+  document.getElementById('cliAuthTitle').textContent = kind + ' 登录授权'
+  document.getElementById('cliAuthBody').innerHTML = '<div class="spinner"></div> 正在生成二维码…'
+  document.getElementById('cliAuthStatus').textContent = ''
+
+  // 先获取实例（如果有）
+  let instId = ''
+  const insts = _connInstances || []
+  const inst = insts.find(i => i.kind === kind)
+  if (inst) instId = inst.instance_id
+
+  try {
+    const bodyData = overrideCreds
+      ? { instance_id: instId, app_id: overrideCreds.app_id, app_secret: overrideCreds.app_secret }
+      : { instance_id: instId }
+    const r = await fetch('/api/v2/connectors/cli/' + encodeURIComponent(kind) + '/auth/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+      body: JSON.stringify(bodyData)
+    })
+    const res = await r.json()
+    if (!res.status) throw new Error(res.msg || '启动失败')
+    const d = res.data
+    // 取 device_code / user_code（兼容不同版本字段名）
+    const deviceCode = d.device_code || d.raw?.device_code || ''
+    const userCode = d.user_code || d.raw?.user_code || ''
+    _cliAuthSession = { kind, instanceId: instId, deviceCode, userCode, done: false }
+    _renderCliAuthBody(d)
+    if (_cliAuthPollTimer) clearInterval(_cliAuthPollTimer)
+    _cliAuthPollTimer = setInterval(_cliAuthPollOnce, 5000)
+  } catch (e) {
+    document.getElementById('cliAuthBody').innerHTML = '<div style="color:#e5636a;padding:20px">⚠️ ' + esc(e.message) + '</div>'
+  }
+}
+
+function _renderCliAuthBody(d) {
+  const body = document.getElementById('cliAuthBody')
+  // 优先用后端生成的 data URI 二维码
+  if (d.qrcode_image && d.qrcode_image.startsWith('data:image/')) {
+    const uri = d.verification_uri_complete || d.verification_uri || '#'
+    const linkHint = /^https?:\/\//.test(uri)
+      ? '<div class="chan-qr-hint"><a href="' + esc(uri) + '" target="_blank">打不开二维码？点击打开</a></div>' : ''
+    body.innerHTML = '<img src="' + esc(d.qrcode_image) + '" class="chan-qr-img">' +
+      (d.user_code ? '<div class="chan-qr-hint">或输入验证码：<b>' + esc(d.user_code) + '</b></div>' : '') +
+      '<div class="chan-qr-hint">请用手机扫码授权</div>' + linkHint
+  } else {
+    const url = d.verification_uri_complete || d.verification_uri || ''
+    if (url) {
+      body.innerHTML = '<div class="chan-qr-hint"><a href="' + esc(url) + '" target="_blank">点击打开授权页</a></div>' +
+        (d.user_code ? '<div style="font-size:24px;font-weight:700;letter-spacing:4px;margin:12px 0">' + esc(d.user_code) + '</div>' : '') +
+        '<div class="chan-qr-hint">扫码或在浏览器中完成授权</div>'
+    } else {
+      body.innerHTML = '<div style="padding:20px;color:var(--bt-text-2)">等待授权…</div>'
+    }
+  }
+}
+
+function _cliAuthPollOnce() {
+  if (!_cliAuthSession || _cliAuthSession.done) return
+  const s = _cliAuthSession
+  const status = document.getElementById('cliAuthStatus')
+  fetch('/api/v2/connectors/cli/' + encodeURIComponent(s.kind) + '/auth/poll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+    body: JSON.stringify({ instance_id: s.instanceId || '', device_code: s.deviceCode || '' })
+  }).then(r => r.json()).then(res => {
+    if (!res.status) throw new Error(res.msg || '轮询失败')
+    const d = res.data
+    if (d.status === 'success') {
+      s.done = true
+      if (_cliAuthPollTimer) { clearInterval(_cliAuthPollTimer); _cliAuthPollTimer = null }
+      status.innerHTML = '<span style="color:#16a34a">✓ 授权成功！</span>'
+      // 刷新连接器状态
+      setTimeout(function () {
+        closeCliAuthModal()
+        loadConnectors()
+        alert('🎉 飞书用户授权成功，文档搜索等功能已就绪。')
+      }, 800)
+    } else if (d.status === 'expired' || d.status === 'error') {
+      s.done = true
+      if (_cliAuthPollTimer) { clearInterval(_cliAuthPollTimer); _cliAuthPollTimer = null }
+      status.textContent = '✗ ' + (d.message || '授权失败')
+    } else {
+      status.textContent = '等待手机扫码…'
+    }
+  }).catch(e => {
+    status.textContent = '轮询出错: ' + e.message
+  })
+}
+
+function closeCliAuthModal() {
+  const modal = document.getElementById('cliAuthModal')
+  if (modal) modal.classList.remove('show')
+  if (_cliAuthPollTimer) { clearInterval(_cliAuthPollTimer); _cliAuthPollTimer = null }
+  _cliAuthSession = null
+}
+
+// ── OAuth2 一键授权（card-login 版）─────────────────────────
+let _connOAuth2PollTimer = null
+
+async function startConnOAuth2(kind) {
+  try {
+    const r = await fetch('/api/v2/connectors/oauth2/authorize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+      body: JSON.stringify({ kind })
+    })
+    const res = await r.json()
+    if (!res.status) { alert(res.msg || '启动授权失败'); return }
+    window.open(res.data.auth_url, '_blank', 'noopener')
+    alert('请在打开的页面中完成授权…')
+    _pollConnOAuth2Status(kind)
+  } catch (e) {
+    alert('启动授权失败：' + e.message)
+  }
+}
+
+function _pollConnOAuth2Status(kind) {
+  if (_connOAuth2PollTimer) clearInterval(_connOAuth2PollTimer)
+  let tries = 0
+  _connOAuth2PollTimer = setInterval(async function () {
+    tries++
+    try {
+      const r = await fetch('/api/v2/connectors/oauth2/status', {
+        headers: { 'Authorization': 'Bearer ' + getToken() }
+      })
+      const res = await r.json()
+      if (res.status && res.data && res.data.token_cache_kinds &&
+          res.data.token_cache_kinds.indexOf(kind) >= 0) {
+        clearInterval(_connOAuth2PollTimer)
+        _connOAuth2PollTimer = null
+        loadConnectors()
+        alert('🎉 OAuth2 授权成功！连接器已自动保存。')
+      } else if (tries > 60) {
+        clearInterval(_connOAuth2PollTimer)
+        _connOAuth2PollTimer = null
+        alert('授权超时，请重试。')
+      }
+    } catch (e) {
+      if (tries > 60) { clearInterval(_connOAuth2PollTimer); _connOAuth2PollTimer = null }
+    }
+  }, 3000)
+}
+
+// ========== MCP 服务器（卡密用户）==========
+async function loadCardMcpServers() {
+  const el = document.getElementById('mcpCardList')
+  try {
+    const r = await fetch('/api/card/mcp/servers', { headers: { 'Authorization': 'Bearer ' + getToken() } })
+    const res = await r.json()
+    if (!res.items) { el.innerHTML = '<div class="empty">加载失败</div>'; return }
+    if (!res.items.length) { el.innerHTML = '<div class="empty">尚未配置 MCP 服务器</div>'; return }
+    el.innerHTML = res.items.map(s =>
+      '<div class="chan-item" style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid #2c303a">' +
+        '<div><strong>' + esc(s.name || '') + '</strong> <span style="font-size:11px;color:#888">' + esc(s.type || '') + '</span><br>' +
+        '<span style="font-size:12px;color:#aaa">' + esc((s.command || s.url || '')) + '</span></div>' +
+        '<button class="btn-sm" onclick="removeCardMcpServer(\'' + esc(s.name) + '\')">删除</button>' +
+      '</div>'
+    ).join('')
+  } catch (e) { el.innerHTML = '<div class="empty">⚠️ ' + esc(e.message) + '</div>' }
+}
+
+async function addCardMcpServer() {
+  const name = document.getElementById('mcpAddName').value.trim()
+  const configRaw = document.getElementById('mcpAddConfig').value.trim()
+  if (!name) { alert('请填写服务器名称'); return }
+  if (!configRaw) { alert('请填写配置 JSON'); return }
+  try {
+    JSON.parse(configRaw)
+    const r = await fetch('/api/card/mcp/servers/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': 'Bearer ' + getToken() },
+      body: 'name=' + encodeURIComponent(name) + '&config=' + encodeURIComponent(configRaw)
+    })
+    const res = await r.json()
+    const msg = document.getElementById('mcpCardMsg')
+    msg.textContent = res.status ? '✅ 添加成功' : '❌ ' + (res.msg || '失败')
+    msg.style.color = res.status ? '#6c5ce7' : '#e74c3c'
+    if (res.status) loadCardMcpServers()
+  } catch (e) {
+    const msg = document.getElementById('mcpCardMsg')
+    msg.textContent = '❌ ' + e.message
+    msg.style.color = '#e74c3c'
+  }
+}
+
+async function removeCardMcpServer(name) {
+  if (!confirm('确定删除 MCP 服务器 "' + name + '" ?')) return
+  const r = await fetch('/api/card/mcp/servers/remove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': 'Bearer ' + getToken() },
+    body: 'name=' + encodeURIComponent(name)
+  })
+  const res = await r.json()
+  if (res.status) loadCardMcpServers()
+  else alert('删除失败：' + (res.msg || '未知'))
+}
+
+// ========== 技能（卡密用户）==========
+async function loadCardSkills() {
+  const el = document.getElementById('skillCardList')
+  try {
+    const r = await fetch('/api/card/skills', { headers: { 'Authorization': 'Bearer ' + getToken() } })
+    const res = await r.json()
+    if (!res.skills) { el.innerHTML = '<div class="empty">加载失败</div>'; return }
+    if (!res.skills.length) { el.innerHTML = '<div class="empty">尚未安装技能</div>'; return }
+    el.innerHTML = '<div style="font-size:12px;color:#888;margin-bottom:8px">' + res.total + ' 个技能，' + res.enabled + ' 启用</div>' +
+      res.skills.map(s =>
+        '<div class="chan-item" style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid #2c303a">' +
+          '<div style="flex:1;min-width:0"><strong>' + esc(s.name || '') + '</strong> ' +
+            '<span class="badge ' + (s.enabled ? 'ok' : 'no') + '" style="font-size:11px">' + (s.enabled ? '启用' : '禁用') + '</span><br>' +
+            '<span style="font-size:12px;color:#aaa">' + esc((s.description || '').slice(0, 80)) + '</span></div>' +
+          '<button class="btn-sm" onclick="uninstallCardSkill(\'' + esc(s.name || '') + '\')">卸载</button>' +
+        '</div>'
+      ).join('')
+  } catch (e) { el.innerHTML = '<div class="empty">⚠️ ' + esc(e.message) + '</div>' }
+}
+
+async function installCardSkill() {
+  const fileInput = document.getElementById('skillCardZip')
+  if (!fileInput.files.length) { alert('请选择 ZIP 文件'); return }
+  const formData = new FormData()
+  formData.append('zip', fileInput.files[0])
+  const r = await fetch('/api/card/skills/install', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + getToken() },
+    body: formData
+  })
+  const res = await r.json()
+  const msg = document.getElementById('skillCardMsg')
+  msg.textContent = res.status ? '✅ 安装成功' : '❌ ' + (res.msg || '失败')
+  msg.style.color = res.status ? '#6c5ce7' : '#e74c3c'
+  if (res.status) loadCardSkills()
+}
+
+async function uninstallCardSkill(name) {
+  if (!confirm('确定卸载技能 "' + name + '" ?')) return
+  const r = await fetch('/api/card/skills/uninstall', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': 'Bearer ' + getToken() },
+    body: 'skill_name=' + encodeURIComponent(name)
+  })
+  const res = await r.json()
+  if (res.status) loadCardSkills()
+  else alert('卸载失败：' + (res.msg || '未知'))
+}
+
 </script>
 </body>
 </html>

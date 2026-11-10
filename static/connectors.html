@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>连接器管理 · Connector Hub</title>
+<link rel="icon" href="/favicon.png" />
+<style>
+  :root {
+    --bt-primary: #07c160; --bt-primary-dark: #06ad56; --bt-primary-soft: rgba(7,193,96,.10);
+    --bt-accent: #3b82f6; --bt-bg: #f6f7f9; --bt-surface: #fff; --bt-surface-2: #f9fafb;
+    --bt-border: #e8eaed; --bt-text: #1f2937; --bt-text-2: #6b7280; --bt-text-3: #9ca3af;
+    --bt-shadow-sm: 0 1px 2px rgba(16,24,40,.05); --bt-shadow: 0 4px 14px rgba(16,24,40,.08);
+    --bt-shadow-lg: 0 12px 40px rgba(16,24,40,.16); --bt-radius: 12px; --bt-radius-sm: 8px;
+    --bt-danger: #ef4444; --bt-warn: #f59e0b;
+    --bt-transition: .2s cubic-bezier(.4,0,.2,1);
+  }
+  html[data-theme="dark"] {
+    --bt-bg: #0f1115; --bt-surface: #171a21; --bt-surface-2: #1d2129; --bt-border: #2a2f3a;
+    --bt-text: #e5e7eb; --bt-text-2: #9ca3af; --bt-text-3: #6b7280;
+    --bt-shadow-sm: 0 1px 2px rgba(0,0,0,.4); --bt-shadow: 0 4px 14px rgba(0,0,0,.5);
+    --bt-shadow-lg: 0 12px 40px rgba(0,0,0,.6); --bt-primary-soft: rgba(7,193,96,.16);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', Roboto, sans-serif;
+    background: var(--bt-bg); color: var(--bt-text); line-height: 1.6; min-height: 100vh;
+    transition: background var(--bt-transition), color var(--bt-transition);
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 24px 20px 60px; }
+  header.top { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; flex-wrap: wrap; }
+  header.top .logo {
+    width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, var(--bt-primary), #10b981);
+    display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; flex: none;
+  }
+  header.top h1 { font-size: 22px; font-weight: 700; }
+  header.top .sub { color: var(--bt-text-2); font-size: 13px; }
+  .spacer { flex: 1; }
+  .btn {
+    border: 1px solid var(--bt-border); background: var(--bt-surface); color: var(--bt-text);
+    padding: 8px 14px; border-radius: var(--bt-radius-sm); cursor: pointer; font-size: 13px;
+    transition: all var(--bt-transition); display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { border-color: var(--bt-primary); color: var(--bt-primary); }
+  .btn.primary { background: var(--bt-primary); border-color: var(--bt-primary); color: #fff; }
+  .btn.primary:hover { background: var(--bt-primary-dark); }
+  .btn.ghost { background: transparent; }
+  .btn.danger:hover { border-color: var(--bt-danger); color: var(--bt-danger); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .tabs { display: flex; gap: 6px; margin: 20px 0 16px; border-bottom: 1px solid var(--bt-border); flex-wrap: wrap; }
+  .tab {
+    padding: 9px 16px; cursor: pointer; font-size: 14px; color: var(--bt-text-2);
+    border-bottom: 2px solid transparent; transition: all var(--bt-transition); margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--bt-text); }
+  .tab.active { color: var(--bt-primary); border-bottom-color: var(--bt-primary); font-weight: 600; }
+  .panel { display: none; }
+  .panel.active { display: block; animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .search {
+    flex: 1; min-width: 200px; padding: 9px 14px; border: 1px solid var(--bt-border);
+    border-radius: var(--bt-radius-sm); background: var(--bt-surface); color: var(--bt-text); font-size: 14px;
+  }
+  .search:focus { outline: none; border-color: var(--bt-primary); box-shadow: 0 0 0 3px var(--bt-primary-soft); }
+  select.cat { padding: 9px 12px; border: 1px solid var(--bt-border); border-radius: var(--bt-radius-sm);
+    background: var(--bt-surface); color: var(--bt-text); font-size: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--bt-surface); border: 1px solid var(--bt-border); border-radius: var(--bt-radius);
+    padding: 16px; box-shadow: var(--bt-shadow-sm); transition: all var(--bt-transition);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .card:hover { box-shadow: var(--bt-shadow); transform: translateY(-2px); }
+  .card .hd { display: flex; align-items: center; gap: 10px; }
+  .card .icon {
+    width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    font-size: 17px; font-weight: 700; color: #fff; flex: none;
+  }
+  .card .nm { font-weight: 600; font-size: 15px; }
+  .card .kind { color: var(--bt-text-3); font-size: 11px; font-family: ui-monospace, monospace; }
+  .card .desc { color: var(--bt-text-2); font-size: 13px; flex: 1; min-height: 38px; }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 20px; background: var(--bt-surface-2);
+    color: var(--bt-text-2); border: 1px solid var(--bt-border);
+  }
+  .badge.mode-remote { background: rgba(59,130,246,.12); color: #3b82f6; border-color: transparent; }
+  .badge.mode-gateway { background: rgba(245,158,11,.14); color: #d97706; border-color: transparent; }
+  .badge.mode-internal { background: rgba(139,92,246,.14); color: #8b5cf6; border-color: transparent; }
+  .badge.ok { background: var(--bt-primary-soft); color: var(--bt-primary-dark); border-color: transparent; }
+  .badge.no { background: rgba(239,68,68,.12); color: var(--bt-danger); border-color: transparent; }
+  .card .ft { display: flex; gap: 8px; }
+  .empty { text-align: center; padding: 60px 20px; color: var(--bt-text-3); }
+  .empty .big { font-size: 40px; margin-bottom: 12px; }
+  /* 实例卡片 */
+  .inst .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .switch { position: relative; width: 40px; height: 22px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; background: var(--bt-border); border-radius: 22px;
+    cursor: pointer; transition: var(--bt-transition);
+  }
+  .slider:before {
+    content: ''; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: var(--bt-transition);
+  }
+  .switch input:checked + .slider { background: var(--bt-primary); }
+  .switch input:checked + .slider:before { transform: translateX(18px); }
+  /* 弹窗 */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center;
+    justify-content: center; z-index: 1000; padding: 20px;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    background: var(--bt-surface); border-radius: var(--bt-radius); width: 100%; max-width: 560px;
+    max-height: 88vh; overflow-y: auto; box-shadow: var(--bt-shadow-lg); animation: pop .2s ease;
+  }
+  @keyframes pop { from { transform: scale(.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .modal .mh { padding: 18px 22px; border-bottom: 1px solid var(--bt-border); display: flex; align-items: center; gap: 10px; }
+  .modal .mh h3 { font-size: 17px; flex: 1; }
+  .modal .mb { padding: 20px 22px; }
+  .modal .mf { padding: 16px 22px; border-top: 1px solid var(--bt-border); display: flex; gap: 10px; justify-content: flex-end; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .field label .req { color: var(--bt-danger); }
+  .field .hint { font-size: 12px; color: var(--bt-text-3); margin-top: 4px; }
+  .field input, .field textarea {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--bt-border); border-radius: var(--bt-radius-sm);
+    background: var(--bt-surface-2); color: var(--bt-text); font-size: 14px; font-family: inherit;
+  }
+  .field input:focus, .field textarea:focus { outline: none; border-color: var(--bt-primary); box-shadow: 0 0 0 3px var(--bt-primary-soft); }
+  .toast {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--bt-text); color: var(--bt-bg); padding: 11px 22px; border-radius: 24px;
+    font-size: 14px; box-shadow: var(--bt-shadow-lg); opacity: 0; transition: all .3s ease; z-index: 2000; max-width: 90vw;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .toast.err { background: var(--bt-danger); color: #fff; }
+  .toast.ok { background: var(--bt-primary-dark); color: #fff; }
+  .loading { text-align: center; padding: 50px; color: var(--bt-text-3); }
+  .spin { width: 26px; height: 26px; border: 3px solid var(--bt-border); border-top-color: var(--bt-primary);
+    border-radius: 50%; animation: rot .8s linear infinite; margin: 0 auto 12px; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .a-link { color: var(--bt-accent); text-decoration: none; font-size: 12px; }
+  .a-link:hover { text-decoration: underline; }
+  .cli-warn { font-size: 12px; color: var(--bt-warn); }
+  /* CLI 授权轮询状态指示 */
+  .cli-spin {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--bt-border); border-top-color: var(--bt-primary);
+    animation: rot .8s linear infinite; vertical-align: -1px; margin-right: 2px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo">🔌</div>
+    <div>
+      <h1>连接器管理</h1>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="themeBtn" title="切换主题">🌓</button>
+    <button class="btn" id="syncWbBtn">🔄 从 WorkBuddy 更新</button>
+    <button class="btn" id="syncBtn">同步到 MCP</button>
+    <button class="btn" id="refreshBtn">刷新</button>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="market">连接器市场</div>
+    <div class="tab" data-tab="instances">我的连接器 <span id="instCount" class="badge">0</span></div>
+    <div class="tab" data-tab="gateway">Gateway 适配器</div>
+  </div>
+
+  <!-- 连接器市场 -->
+  <div class="panel active" id="panel-market">
+    <div class="filters">
+      <input class="search" id="searchInput" placeholder="搜索连接器名称 / 描述 / kind…" />
+      <select class="cat" id="catSelect"><option value="">全部分类</option></select>
+    </div>
+    <div id="marketList"><div class="loading"><div class="spin"></div>加载连接器目录…</div></div>
+  </div>
+
+  <!-- 我的连接器 -->
+  <div class="panel" id="panel-instances">
+    <div id="instList"></div>
+  </div>
+
+  <!-- Gateway 适配器 -->
+  <div class="panel" id="panel-gateway">
+    <div id="gwList"><div class="loading"><div class="spin"></div>加载适配器…</div></div>
+  </div>
+</div>
+
+<!-- 创建/编辑弹窗 -->
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <div class="mh">
+      <div class="icon" id="mIcon" style="width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700"></div>
+      <h3 id="mTitle">添加连接器</h3>
+      <button class="btn ghost" id="mClose">✕</button>
+    </div>
+    <div class="mb" id="mBody"></div>
+    <div class="mf">
+      <button class="btn ghost" id="mCancel">取消</button>
+      <button class="btn" id="mCliAuth" style="display:none">🔐 登录授权</button>
+      <button class="btn" id="mTest">测试凭据</button>
+      <button class="btn primary" id="mSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- CLI 设备码登录授权弹窗 -->
+<div class="modal-bg" id="cliAuthBg">
+  <div class="modal" style="max-width:420px">
+    <div class="mh">
+      <div class="icon" style="width:34px;height:34px;border-radius:9px;background:#3370ff;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700">🔐</div>
+      <h3 id="cliAuthTitle">登录授权</h3>
+      <button class="btn ghost" id="cliAuthClose">✕</button>
+    </div>
+    <div class="mb" id="cliAuthBody" style="text-align:center;min-height:240px"></div>
+    <div class="mf" style="justify-content:center">
+      <div id="cliAuthStatus" style="font-size:13px;color:var(--bt-text-2);min-height:20px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/static/js/panel-auth.js"></script>
+<script>
+(function () {
+  'use strict';
+  var API = '/api/v2/connectors';
+  var catalog = [], currentKind = null, editingId = null, configuredMap = {}, currentManualOAuth2 = false;
+  var $ = function (s) { return document.querySelector(s); };
+  var AF = (window.PanelAuth && window.PanelAuth.authFetch) ? window.PanelAuth.authFetch : window.fetch;
+
+  function toast(msg, type) {
+    var t = $('#toast'); t.textContent = msg; t.className = 'toast show ' + (type || '');
+    clearTimeout(t._tm); t._tm = setTimeout(function () { t.className = 'toast ' + (type || ''); }, 2600);
+  }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function colorOf(e) { return e.color || '#666'; }
+  function initial(e) { return (e.name || e.kind || '?').slice(0, 1).toUpperCase(); }
+
+  async function api(path, opts) {
+    var r = await AF(API + path, opts);
+    return r.json();
+  }
+
+  // ── 加载目录 ──────────────────────────────────────────────
+  async function loadCatalog() {
+    try {
+      var res = await api('/catalog?locale=zh');
+      if (!res.status) throw new Error(res.msg || '加载失败');
+      catalog = res.data.connectors || [];
+      var cats = Object.keys(res.data.categories || {}).sort();
+      var sel = $('#catSelect');
+      cats.forEach(function (c) { var o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o); });
+      renderMarket();
+    } catch (e) {
+      $('#marketList').innerHTML = '<div class="empty"><div class="big">⚠️</div>' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderMarket() {
+    var q = $('#searchInput').value.trim().toLowerCase();
+    var cat = $('#catSelect').value;
+    var list = catalog.filter(function (e) {
+      if (cat && e.category !== cat) return false;
+      if (!q) return true;
+      return (e.name + ' ' + e.description + ' ' + e.kind).toLowerCase().indexOf(q) >= 0;
+    });
+    if (!list.length) { $('#marketList').innerHTML = '<div class="empty"><div class="big">🔍</div>没有匹配的连接器</div>'; return; }
+    var html = '<div class="grid">' + list.map(function (e) {
+      var supported = e.supported;
+      var isOAuth2 = (e.auth_kind === 'oauth2');
+      var isOAuth = (e.auth_kind === 'oauth');
+      var badges = '<span class="badge mode-' + esc(e.mcp_mode) + '">' + esc(e.mcp_mode) + '</span>' +
+        '<span class="badge">' + esc(e.category) + '</span>' +
+        '<span class="badge">' + esc(e.auth_kind) + '</span>' +
+        (supported ? '<span class="badge ok">可接入</span>' : '<span class="badge no">暂不支持</span>');
+      var actions = '';
+      if (isOAuth2) {
+        // OAuth2 连接器统一走「一键授权」（后端已对所有 5 个实现完整 OAuth 流程 + DCR）
+        actions += '<button class="btn primary" data-oauth2="' + esc(e.kind) + '">⚡ 一键授权</button>';
+        // 是否支持手动粘贴：以 catalog 的 credential_fields 为准（含 manual_token 字段即可）
+        var hasManualField = (e.credential_fields || []).some(function (f) { return f.key === 'manual_token'; });
+        if (hasManualField) {
+          actions += '<button class="btn" data-manual-oauth2="' + esc(e.kind) + '">手动粘贴 Token</button>';
+        }
+      } else if (isOAuth) {
+        // WorkBuddy 导入的 oauth 连接器：无标准 OAuth 发现，走手动粘贴 access_token 兜底
+        actions += '<button class="btn primary" data-manual-oauth2="' + esc(e.kind) + '">+ 添加（粘贴 Token）</button>';
+      } else if (e.login_url) {
+        // CLI 设备码登录授权（飞书 CLI 等）：扫码即可，无需手填 App 凭据
+        actions += '<button class="btn primary" data-cli-auth="' + esc(e.kind) + '">🔐 登录授权</button>';
+        if (supported) actions += '<button class="btn" data-add="' + esc(e.kind) + '">+ 手动配置</button>';
+      } else if (e.auth_kind === 'none' && supported) {
+        // 无需凭据的连接器（remote / gateway 均已注册适配器）：直接添加即可
+        actions += '<button class="btn primary" data-add="' + esc(e.kind) + '">+ 添加</button>';
+      } else if (supported) {
+        actions += '<button class="btn primary" data-add="' + esc(e.kind) + '">+ 添加</button>';
+      }
+      // 仅当 manual_url 是真实可用的获取凭证页面时显示「获取凭据」链接；
+      // WorkBuddy CDN 目录（static.workbuddy.cn/connectors-config-v2/...）实际 404，
+      // 不显示，避免用户点开死链（此时靠弹窗内 auth_hint 文本指引）。
+      if (e.manual_url && !/static\.workbuddy\.cn\/connectors-config-v2\//.test(e.manual_url)) {
+        actions += '<a class="a-link" href="' + esc(e.manual_url) + '" target="_blank" rel="noopener" style="align-self:center">获取凭据 ↗</a>';
+      }
+      return '<div class="card">' +
+        '<div class="hd"><div class="icon" style="background:' + colorOf(e) + '">' + initial(e) + '</div>' +
+        '<div style="flex:1;min-width:0"><div class="nm">' + esc(e.name) + '</div>' +
+        '<div class="kind">' + esc(e.kind) + '</div></div></div>' +
+        '<div class="desc">' + esc(e.description) + '</div>' +
+        '<div class="badges">' + badges + '</div>' +
+        '<div class="ft">' + actions + '</div></div>';
+    }).join('') + '</div>';
+    $('#marketList').innerHTML = html;
+    document.querySelectorAll('[data-add]').forEach(function (b) {
+    b.onclick = function () { openModal(b.getAttribute('data-add'), null); };
+  });
+  document.querySelectorAll('[data-oauth2]').forEach(function (b) {
+    b.onclick = function () { startOAuth2(b.getAttribute('data-oauth2')); };
+  });
+  document.querySelectorAll('[data-manual-oauth2]').forEach(function (b) {
+    b.onclick = function () { openModal(b.getAttribute('data-manual-oauth2'), null, true); };
+  });
+  document.querySelectorAll('[data-cli-auth]').forEach(function (b) {
+    b.onclick = function () { startCliAuth(b.getAttribute('data-cli-auth')); };
+  });
+}
+
+  // ── CLI 设备码登录授权 ──────────────────────────────────────
+  var cliAuthSession = null, cliAuthTimer = null;
+
+  async function startCliAuth(kind, overrideCreds) {
+    var e = catalog.find(function (c) { return c.kind === kind; }) || { name: kind };
+
+    // 没有实例或凭据不全：先引导去配置，避免后端直接报错
+    var instId = '';
+    var inst = (window._connInstances || []).find(function (i) { return i.kind === kind; });
+    if (inst) instId = inst.instance_id;
+    var hasCreds = !!(overrideCreds && overrideCreds.app_id && overrideCreds.app_secret);
+    if (instId && !hasCreds) {
+      // 实例已存在：用它的 configured_fields 判断 App ID / Secret 是否齐全
+      var cf = inst.configured_fields || [];
+      var need = (e.credential_fields || []).filter(function (f) { return f.required !== false; }).map(function (f) { return f.key; });
+      var missing = need.filter(function (k) { return cf.indexOf(k) < 0; });
+      if (missing.length) {
+        toast('请先补全配置：' + missing.join('、'), 'err');
+        openModal(kind, instId);
+        return;
+      }
+    } else if (!instId && !hasCreds) {
+      toast('请先点「+ 手动配置」填写 App ID 与 App Secret', 'err');
+      openModal(kind, null);
+      return;
+    }
+
+    $('#cliAuthBg').classList.add('show');
+    $('#cliAuthTitle').textContent = e.name + ' 登录授权';
+    $('#cliAuthBody').innerHTML = '<div class="loading" style="padding:40px"><div class="spin"></div>正在生成二维码…</div>';
+    $('#cliAuthStatus').textContent = '';
+
+    try {
+      var payload = overrideCreds
+        ? { instance_id: instId, app_id: overrideCreds.app_id, app_secret: overrideCreds.app_secret }
+        : { instance_id: instId };
+      var r = await api('/cli/' + encodeURIComponent(kind) + '/auth/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      });
+      if (!r.status) throw new Error(r.msg || '启动失败');
+      var d = r.data;
+      var deviceCode = d.device_code || (d.raw && d.raw.device_code) || '';
+      cliAuthSession = { kind: kind, instanceId: instId, deviceCode: deviceCode, done: false, startedAt: Date.now(), polls: 0 };
+      renderCliAuthBody(d);
+      setCliAuthStatus('pending', '等待手机扫码…');
+      if (cliAuthTimer) clearInterval(cliAuthTimer);
+      cliAuthTimer = setInterval(cliAuthPollOnce, 5000);
+    } catch (err) {
+      $('#cliAuthBody').innerHTML = '<div style="color:#e5636a;padding:30px">⚠️ ' + esc(err.message) + '</div>';
+      setCliAuthStatus('error', '启动失败');
+    }
+  }
+
+  // 统一状态渲染：pending / success / error
+  function setCliAuthStatus(state, text) {
+    var el = $('#cliAuthStatus');
+    if (!el) return;
+    if (state === 'success') {
+      el.innerHTML = '<span style="color:#16a34a;font-weight:600">✓ ' + esc(text) + '</span>';
+    } else if (state === 'error') {
+      el.innerHTML = '<span style="color:#e5636a">✗ ' + esc(text) + '</span>';
+    } else if (state === 'pending') {
+      var secs = cliAuthSession && cliAuthSession.startedAt
+        ? Math.floor((Date.now() - cliAuthSession.startedAt) / 1000) : 0;
+      el.innerHTML = '<span class="cli-spin"></span> ' + esc(text) +
+        '<span style="color:var(--bt-text-3);margin-left:6px">' + secs + 's</span>';
+    } else {
+      el.textContent = text || '';
+    }
+  }
+
+  function renderCliAuthBody(d) {
+    var body = $('#cliAuthBody');
+    if (d.qrcode_image && d.qrcode_image.indexOf('data:image/') === 0) {
+      var uri = d.verification_uri_complete || d.verification_uri || '#';
+      var linkHint = /^https?:\/\//.test(uri)
+        ? '<div class="hint" style="margin-top:12px"><a href="' + esc(uri) + '" target="_blank">打不开二维码？点击打开</a></div>' : '';
+      body.innerHTML = '<img src="' + esc(d.qrcode_image) + '" style="max-width:220px;border-radius:8px;border:1px solid var(--bt-border)">' +
+        (d.user_code ? '<div class="hint" style="margin-top:12px">或输入验证码：<b style="font-size:16px;letter-spacing:2px">' + esc(d.user_code) + '</b></div>' : '') +
+        '<div class="hint" style="margin-top:10px">请用飞书手机 App 扫码授权</div>' + linkHint;
+    } else {
+      var url = d.verification_uri_complete || d.verification_uri || '';
+      if (url) {
+        body.innerHTML = '<div class="hint"><a href="' + esc(url) + '" target="_blank">点击打开授权页</a></div>' +
+          (d.user_code ? '<div style="font-size:24px;font-weight:700;letter-spacing:4px;margin:14px 0">' + esc(d.user_code) + '</div>' : '') +
+          '<div class="hint">在浏览器中完成授权</div>';
+      } else {
+        body.innerHTML = '<div style="padding:30px;color:var(--bt-text-2)">等待授权…</div>';
+      }
+    }
+  }
+
+  function cliAuthPollOnce() {
+    if (!cliAuthSession || cliAuthSession.done) return;
+    var s = cliAuthSession;
+    s.polls = (s.polls || 0) + 1;
+    api('/cli/' + encodeURIComponent(s.kind) + '/auth/poll', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instance_id: s.instanceId || '', device_code: s.deviceCode || '' })
+    }).then(function (r) {
+      if (!r.status) throw new Error(r.msg || '轮询失败');
+      var d = r.data;
+      if (d.status === 'success') {
+        s.done = true;
+        if (cliAuthTimer) { clearInterval(cliAuthTimer); cliAuthTimer = null; }
+        setCliAuthStatus('success', '授权成功！已更新本地凭证。');
+        setTimeout(function () {
+          closeCliAuth();
+          loadInstances();
+          switchTab('instances');
+          toast('🎉 ' + s.kind.replace('-cli','') + ' 授权成功，相关功能已就绪', 'ok');
+        }, 900);
+      } else if (d.status === 'expired' || d.status === 'error') {
+        s.done = true;
+        if (cliAuthTimer) { clearInterval(cliAuthTimer); cliAuthTimer = null; }
+        setCliAuthStatus('error', d.message || '授权失败（设备码已过期或无效）');
+      } else {
+        var hint = d.message || '等待手机扫码';
+        setCliAuthStatus('pending', hint);
+        // 每 60s 提醒一次"码仍在有效期"，避免用户以为卡死
+        if ((s.polls || 0) > 0 && (s.polls % 12) === 0) {
+          setCliAuthStatus('pending', '请在 3 分钟内用飞书 App 扫码完成授权');
+        }
+      }
+    }).catch(function (err) {
+      // 网络/接口层错误也继续轮询，避免用户端误报
+      setCliAuthStatus('pending', err.message || '连接中…');
+    });
+  }
+
+  function closeCliAuth() {
+    $('#cliAuthBg').classList.remove('show');
+    if (cliAuthTimer) { clearInterval(cliAuthTimer); cliAuthTimer = null; }
+    cliAuthSession = null;
+  }
+
+  // ── OAuth2 一键授权 ────────────────────────────────────────
+  async function startOAuth2(kind) {
+    var r = await api('/oauth2/authorize', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: kind }) });
+    if (!r.status) { toast(r.msg || '启动授权失败', 'err'); return; }
+    var authUrl = r.data.auth_url;
+    // 打开授权页（新标签页/弹窗）
+    window.open(authUrl, '_blank', 'noopener');
+    toast('请在打开的页面中完成授权…', 'ok');
+    // 轮询等待回调完成
+    pollOAuthStatus(kind);
+  }
+
+  // 轮询 OAuth 授权状态（轮询 status 看是否有新实例）
+  function pollOAuthStatus(kind) {
+    var tries = 0;
+    var timer = setInterval(async function () {
+      tries++;
+      var res = await api('/oauth2/status');
+      if (res.data && res.data.token_cache_kinds && res.data.token_cache_kinds.indexOf(kind) >= 0) {
+        clearInterval(timer);
+        toast('授权成功 🎉', 'ok');
+        loadInstances();
+        switchTab('instances');
+      } else if (tries > 60) {
+        clearInterval(timer);
+        toast('授权超时，请重试', 'err');
+      }
+    }, 2000);
+  }
+
+  // ── 我的连接器 ────────────────────────────────────────────
+  async function loadInstances() {
+    var res = await api('/instances');
+    var list = (res.data && res.data.instances) || [];
+    window._connInstances = list;
+    $('#instCount').textContent = list.length;
+    if (!list.length) {
+      $('#instList').innerHTML = '<div class="empty"><div class="big">📦</div>还没有连接器<br><span style="font-size:13px">去「连接器市场」添加一个吧</span></div>';
+      return;
+    }
+    $('#instList').innerHTML = '<div class="grid">' + list.map(function (i) {
+      configuredMap[i.instance_id] = i.configured_fields || [];
+      var e = catalog.find(function (c) { return c.kind === i.kind; }) || { name: i.kind, color: '#666', kind: i.kind };
+      return '<div class="card inst">' +
+        '<div class="hd"><div class="icon" style="background:' + colorOf(e) + '">' + initial(e) + '</div>' +
+        '<div style="flex:1;min-width:0"><div class="nm">' + esc(i.name) + '</div>' +
+        '<div class="kind">' + esc(i.kind) + ' · ' + esc(i.instance_id) + '</div></div>' +
+        '<label class="switch"><input type="checkbox" data-toggle="' + esc(i.instance_id) + '"' + (i.enabled ? ' checked' : '') + '><span class="slider"></span></label></div>' +
+        '<div class="badges"><span class="badge ' + (i.enabled ? 'ok' : '') + '">' + (i.enabled ? '已启用' : '已停用') + '</span></div>' +
+        '<div class="ft"><button class="btn" data-test="' + esc(i.instance_id) + '">测试</button>' +
+        '<button class="btn" data-edit="' + esc(i.kind) + '" data-id="' + esc(i.instance_id) + '">编辑</button>' +
+        '<button class="btn danger" data-del="' + esc(i.instance_id) + '">删除</button></div></div>';
+    }).join('') + '</div>';
+    bindInstanceEvents();
+  }
+
+  function bindInstanceEvents() {
+    document.querySelectorAll('[data-toggle]').forEach(function (cb) {
+      cb.onchange = async function () {
+        var id = cb.getAttribute('data-toggle');
+        var r = await api('/instances/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: cb.checked }) });
+        toast(r.status ? (cb.checked ? '已启用' : '已停用') : (r.msg || '操作失败'), r.status ? 'ok' : 'err');
+        if (!r.status) cb.checked = !cb.checked;
+      };
+    });
+    document.querySelectorAll('[data-test]').forEach(function (b) {
+      b.onclick = async function () {
+        var id = b.getAttribute('data-test'); b.disabled = true; b.textContent = '测试中…';
+        var r = await api('/instances/' + id + '/test', { method: 'POST' });
+        b.disabled = false; b.textContent = '测试';
+        toast(r.status ? ('✅ 连接正常' + (r.data && r.data.tool_count ? '（' + r.data.tool_count + ' 个工具）' : '')) : ('❌ ' + (r.msg || '失败')), r.status ? 'ok' : 'err');
+      };
+    });
+    document.querySelectorAll('[data-edit]').forEach(function (b) {
+      b.onclick = function () { openModal(b.getAttribute('data-edit'), b.getAttribute('data-id')); };
+    });
+    document.querySelectorAll('[data-del]').forEach(function (b) {
+      b.onclick = async function () {
+        var id = b.getAttribute('data-del');
+        if (!confirm('确定删除该连接器实例？')) return;
+        var r = await api('/instances/' + id, { method: 'DELETE' });
+        toast(r.status ? '已删除' : (r.msg || '删除失败'), r.status ? 'ok' : 'err');
+        if (r.status) { loadInstances(); }
+      };
+    });
+  }
+
+  // ── 弹窗 ─────────────────────────────────────────────────
+  async function openModal(kind, instanceId, manualOAuth2) {
+    var e = catalog.find(function (c) { return c.kind === kind; });
+    if (!e) return;
+    currentKind = kind; editingId = instanceId || null; currentManualOAuth2 = !!manualOAuth2;
+    $('#mTitle').textContent = (instanceId ? '编辑' : '添加') + '：' + e.name;
+    $('#mIcon').style.background = colorOf(e);
+    $('#mIcon').textContent = initial(e);
+    var fields = e.credential_fields || [];
+    // 加载已有实例详情（含明文凭据回填非 secret 字段）
+    var existingCreds = {};
+    if (editingId) {
+      try {
+        var _instRes = await api('/instances/' + encodeURIComponent(editingId));
+        if (_instRes.status && _instRes.data) existingCreds = _instRes.data.creds || _instRes.data.credentials || {};
+      } catch (_) {}
+    }
+    var body = '';
+    if (e.auth_hint) body += '<div class="hint" style="margin-bottom:14px;padding:10px;background:var(--bt-surface-2);border-radius:8px">💡 ' + esc(e.auth_hint) + '</div>';
+    body += '<div class="field"><label>实例名称</label><input id="f_name" placeholder="' + esc(e.name) + '" value="' + (instanceId ? esc(e.name || currentKind) : esc(e.name)) + '"></div>';
+
+    function fieldHtml(key, label, opts) {
+      opts = opts || {};
+      var ph = opts.placeholder || '';
+      var isSecret = opts.secret || false;
+      var isUrl = opts.fieldType === 'url';
+      var isTags = opts.fieldType === 'tags';
+      var isTextarea = isTags || (opts.fieldType === 'textarea');
+      var stored = existingCreds[key] !== undefined && existingCreds[key] !== null && existingCreds[key] !== '';
+      var hasStored = stored && isSecret;
+      var req = opts.required !== false;
+      var h = '<div class="field"><label>' + esc(label) + (req ? ' <span class="req">*</span>' : '') + '</label>';
+      if (stored && !isSecret && isTextarea) {
+        h += '<textarea id="cf_' + esc(key) + '" rows="2" placeholder="' + esc(ph) + '">' + esc(existingCreds[key]) + '</textarea>';
+      } else if (stored && !isSecret) {
+        h += '<input id="cf_' + esc(key) + '" type="' + (isUrl ? 'url' : 'text') + '" value="' + esc(existingCreds[key]) + '" placeholder="' + esc(ph) + '">';
+      } else if (isTextarea) {
+        h += '<textarea id="cf_' + esc(key) + '" rows="2" placeholder="' + esc(ph) + '"></textarea>';
+      } else {
+        h += '<input id="cf_' + esc(key) + '" type="' + (isSecret ? 'password' : isUrl ? 'url' : 'text') + '" placeholder="' +
+          (hasStored ? '留空表示不修改' : esc(ph)) + '">';
+      }
+      if (opts.help) h += '<div class="hint">' + esc(opts.help) + '</div>';
+      if (isTags) h += '<div class="hint">用逗号分隔多个值，例如 kb-123, kb-456</div>';
+      if (hasStored) h += '<div class="hint">已配置，留空表示不修改</div>';
+      h += '</div>';
+      return h;
+    }
+
+    function renderField(f) {
+      var label = f.label || f.key;
+      var ph = f.placeholder || '';
+      if (typeof ph === 'object') ph = ph['zh'] || ph.en || '';
+      var help = f.help || '';
+      if (typeof help === 'object') help = help['zh'] || help.en || '';
+      body += fieldHtml(f.key, label, {
+        placeholder: ph,
+        secret: f.secret || f.field_type === 'password',
+        fieldType: f.field_type,
+        required: f.required !== false,
+        help: help,
+      });
+    }
+
+    if (e.auth_kind === 'oauth2') {
+      // OAuth2 优先走一键授权；仅在「手动粘贴」入口进入时才渲染手动 Token 字段，
+      // 避免把兜底字段当成必填项误导用户。
+      var manualFields = fields.filter(function (f) { return f.key === 'manual_token'; });
+      body += '<div class="hint" style="padding:12px;background:var(--bt-surface-2);border-radius:8px">' +
+        '该连接器使用 OAuth2 授权。请在连接器卡片上点击「⚡ 一键授权」完成授权。' +
+        (manualFields.length ? '若一键授权不可用，也可在下方手动粘贴 Token 保存。' : '当前连接器不支持手动粘贴 Token。') +
+        '</div>';
+      if (currentManualOAuth2) {
+        if (manualFields.length) {
+          manualFields.forEach(renderField);
+        } else {
+          body += fieldHtml('manual_token', 'Access Token', {
+            placeholder: '粘贴 Access Token', secret: true, required: true,
+            help: '手动粘贴的 Token 会作为 OAuth2 凭据保存',
+          });
+        }
+      }
+    } else if (e.auth_kind === 'oauth') {
+      // WorkBuddy 导入的 oauth 连接器：无标准 OAuth 发现，手动粘贴 access_token 兜底接入
+      body += '<div class="hint" style="padding:12px;background:var(--bt-surface-2);border-radius:8px">' +
+        '该连接器使用 OAuth 授权。请先获取 access_token，再手动粘贴到下方保存即可接入。' +
+        '</div>';
+      if (currentManualOAuth2) {
+        body += fieldHtml('manual_token', 'Access Token', {
+          placeholder: '粘贴 Access Token', secret: true, required: true,
+          help: '粘贴 OAuth access_token（可带 Bearer 前缀）',
+        });
+      }
+    } else if (fields.length) {
+      // credential_fields 已定义：统一走循环，auth_hint 提示也一并保留
+      fields.forEach(renderField);
+    } else if (e.auth_kind === 'none') {
+      // 免凭证连接器：无需输入任何凭据，直接添加即可
+      body += '<div class="hint" style="padding:12px;background:var(--bt-surface-2);border-radius:8px">' +
+        '该连接器无需凭据，开箱即用，直接保存即可。' +
+        '</div>';
+    } else {
+      // 兜底：通用 Token 输入
+      body += '<div class="field"><label>凭据 <span class="req">*</span></label><textarea id="f_creds" rows="2" placeholder="粘贴 Token / API Key"></textarea>' +
+        '<div class="hint">该连接器未定义凭据字段，请粘贴完整凭据</div></div>';
+    }
+    $('#mBody').innerHTML = body;
+    $('#modalBg').classList.add('show');
+
+    // CLI 类连接器（飞书 CLI 等）：弹窗底部显示「登录授权」按钮
+    var mCli = $('#mCliAuth');
+    if (e.login_url) {
+      mCli.style.display = '';
+      mCli.textContent = editingId ? '🔐 重新登录授权' : '🔐 登录授权';
+      mCli.onclick = function () {
+        var formCreds = collectCreds();
+        var appId = formCreds.app_id || existingCreds.app_id || '';
+        var appSecret = formCreds.app_secret || existingCreds.app_secret || '';
+        if (!appId || !appSecret) {
+          toast('请先填写 App ID 与 App Secret 再登录授权', 'err');
+          return;
+        }
+        closeModal();
+        startCliAuth(kind, { app_id: appId, app_secret: appSecret });
+      };
+    } else {
+      mCli.style.display = 'none';
+      mCli.onclick = null;
+    }
+  }
+  function closeModal() { $('#modalBg').classList.remove('show'); currentKind = null; editingId = null; currentManualOAuth2 = false; }
+
+  function collectCreds() {
+    var creds = {};
+    var generic = $('#f_creds');
+    if (generic) { creds.token = generic.value.trim(); return creds; }
+    // 动态收集所有 cf_* 输入框（覆盖按 auth_kind / credential_fields 渲染的字段）
+    var inputs = document.querySelectorAll('#mBody [id^="cf_"]');
+    for (var i = 0; i < inputs.length; i++) {
+      var el = inputs[i];
+      var key = el.id.replace(/^cf_/, '');
+      var v = el.value.trim();
+      if (!v) continue; // 留空不提交（secret 留空=不修改由后端合并旧值处理）
+      creds[key] = v;
+    }
+    return creds;
+  }
+
+  async function saveInstance() {
+    var e = catalog.find(function (c) { return c.kind === currentKind; });
+    var name = ($('#f_name') || {}).value || currentKind;
+    // url 字段校验
+    if (e) {
+      for (var i = 0; i < (e.credential_fields || []).length; i++) {
+        var f = e.credential_fields[i];
+        if (f.field_type !== 'url') continue;
+        var el = $('#cf_' + f.key);
+        var v = el ? el.value.trim() : '';
+        if (v && !/^https?:\/\/.+/i.test(v)) {
+          toast('「' + esc(f.label) + '」需为 http(s) 开头的完整 URL', 'err');
+          return;
+        }
+      }
+    }
+    var creds = collectCreds();
+    var r;
+    // OAuth2 手动粘贴 Token 走专用接口（创建实例 + 保存 token_cache）
+    if (currentManualOAuth2 && creds.manual_token) {
+      r = await api('/oauth2/manual-token', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: currentKind, token: creds.manual_token }) });
+    } else if (editingId) {
+      r = await api('/instances/' + editingId, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, credentials: creds }) });
+    } else {
+      r = await api('/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: currentKind, name: name, credentials: creds }) });
+    }
+    if (r.status) {
+      toast('已保存', 'ok');
+      closeModal();
+      loadInstances();
+      switchTab('instances');
+    } else {
+      toast(r.msg || '保存失败', 'err');
+    }
+  }
+
+  async function testCreds() {
+    var creds = collectCreds();
+    toast('测试中…');
+    var r = await api('/test-credentials', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: currentKind, credentials: creds }) });
+    toast(r.status ? ('✅ 凭据可用' + (r.data && r.data.tool_count ? '（' + r.data.tool_count + ' 工具）' : '')) : ('❌ ' + (r.msg || '失败')), r.status ? 'ok' : 'err');
+  }
+
+  // ── Gateway 适配器 ────────────────────────────────────────
+  async function loadGateway() {
+    try {
+      var res = await api('/gateway/kinds');
+      var kinds = res.data.kinds || [], cli = res.data.external_cli || [];
+      // 拉取 CLI 安装状态（飞书/企微/Agently/Obsidian）
+      var cliStatus = {};
+      try {
+        var cs = await api('/cli/status');
+        (cs.data.clis || []).forEach(function (c) { cliStatus[c.kind] = c; });
+      } catch (e) {}
+      var html = '';
+      // CLI 安装区
+      if (Object.keys(cliStatus).length) {
+        html += '<h3 style="margin:6px 0 12px;font-size:15px">🛠 命令行工具（CLI）</h3><div class="grid">';
+        for (var ci in cliStatus) {
+          var s = cliStatus[ci];
+          var e0 = catalog.find(function (c) { return c.kind === ci; }) || { name: ci, color: '#666', kind: ci };
+          html += '<div class="card"><div class="hd"><div class="icon" style="background:' + colorOf(e0) + '">' + initial(e0) + '</div>' +
+            '<div style="flex:1;min-width:0"><div class="nm">' + esc(e0.name) + '</div><div class="kind">' + esc(s.binary || ci) + '</div></div></div>' +
+            '<div class="badges">' + (s.installed ? '<span class="badge ok">已安装 ' + esc(s.version || '') + '</span>' : '<span class="badge no">未安装</span>') + '</div>' +
+            (s.installed ? '' : '<div class="hint" style="font-size:12px;color:var(--bt-text-3);word-break:break-all">' + esc(s.install_command || '') + '</div>') +
+            '<div class="ft"><button class="btn ' + (s.installed ? '' : 'primary') + '" data-cli-install="' + esc(ci) + '">' + (s.installed ? '重装/更新' : '安装 CLI') + '</button>' +
+            (s.doc_url ? '<a class="a-link" href="' + esc(s.doc_url) + '" target="_blank" rel="noopener" style="align-self:center">文档 ↗</a>' : '') +
+            '</div></div>';
+        }
+        html += '</div><h3 style="margin:22px 0 12px;font-size:15px">⚙️ Gateway 适配器</h3>';
+      }
+      html += '<div class="grid">';
+      for (var i = 0; i < kinds.length; i++) {
+        var k = kinds[i];
+        var e = catalog.find(function (c) { return c.kind === k; }) || { name: k, color: '#666', kind: k };
+        var isCli = cli.indexOf(k) >= 0;
+        var st = cliStatus[k];
+        var tr = await api('/gateway/' + k + '/tools');
+        var count = (tr.data && tr.data.count) || 0;
+        var cliBadge = '';
+        if (isCli) {
+          cliBadge = (st && st.installed) ? '<span class="badge ok">CLI 就绪</span>' : '<span class="badge no">需装 CLI</span>';
+        }
+        html += '<div class="card"><div class="hd"><div class="icon" style="background:' + colorOf(e) + '">' + initial(e) + '</div>' +
+          '<div style="flex:1;min-width:0"><div class="nm">' + esc(e.name) + '</div><div class="kind">' + esc(k) + '</div></div></div>' +
+          '<div class="badges"><span class="badge mode-gateway">gateway</span><span class="badge ok">' + count + ' 个工具</span>' +
+          cliBadge + '</div>' +
+          '</div>';
+      }
+      html += '</div>';
+      $('#gwList').innerHTML = html;
+      document.querySelectorAll('[data-cli-install]').forEach(function (b) {
+        b.onclick = async function () {
+          var kind = b.getAttribute('data-cli-install');
+          b.disabled = true; b.textContent = '安装中…（可能需要 1-2 分钟）';
+          var r = await api('/cli/' + kind + '/install', { method: 'POST' });
+          toast(r.status ? ('✅ 安装成功' + (r.data && r.data.version ? ' v' + r.data.version : '')) : ('❌ ' + (r.msg || '安装失败')), r.status ? 'ok' : 'err');
+          loadGateway();
+        };
+      });
+    } catch (e) {
+      $('#gwList').innerHTML = '<div class="empty">加载失败：' + esc(e.message) + '</div>';
+    }
+  }
+
+  // ── Tab 切换 ──────────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('active', t.getAttribute('data-tab') === name); });
+    document.querySelectorAll('.panel').forEach(function (p) { p.classList.toggle('active', p.id === 'panel-' + name); });
+    if (name === 'instances') loadInstances();
+    if (name === 'gateway' && $('#gwList').querySelector('.loading')) loadGateway();
+  }
+
+  // ── 绑定 ─────────────────────────────────────────────────
+  document.querySelectorAll('.tab').forEach(function (t) { t.onclick = function () { switchTab(t.getAttribute('data-tab')); }; });
+  $('#searchInput').oninput = renderMarket;
+  $('#catSelect').onchange = renderMarket;
+  $('#refreshBtn').onclick = function () { loadCatalog(); loadInstances(); toast('已刷新', 'ok'); };
+  $('#syncWbBtn').onclick = async function () {
+    this.disabled = true; this.textContent = '⏳ 同步中…';
+    try {
+      var r = await api('/catalog/sync-workbuddy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      if (r.status) {
+        toast('✅ 已更新：新增 ' + (r.data?.added || 0) + ' 个，共 ' + r.data?.total + ' 个', 'ok');
+        loadCatalog(); loadInstances();
+      } else {
+        toast('❌ 同步失败：' + (r.msg || '未知错误'), 'err');
+      }
+    } finally {
+      this.disabled = false; this.textContent = '🔄 从 WorkBuddy 更新';
+    }
+  };
+  $('#syncBtn').onclick = async function () {
+    var r = await api('/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (r.status) { var d = r.data; toast('已同步：+' + d.added.length + ' / -' + d.removed.length, 'ok'); }
+    else toast(r.msg || '同步失败', 'err');
+  };
+  $('#mClose').onclick = closeModal; $('#mCancel').onclick = closeModal;
+  $('#mSave').onclick = saveInstance; $('#mTest').onclick = testCreds;
+  $('#modalBg').onclick = function (e) { if (e.target === $('#modalBg')) closeModal(); };
+  $('#cliAuthClose').onclick = closeCliAuth;
+  $('#cliAuthBg').onclick = function (e) { if (e.target === $('#cliAuthBg')) closeCliAuth(); };
+  $('#themeBtn').onclick = function () {
+    var cur = document.documentElement.getAttribute('data-theme');
+    var next = cur === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('bt_theme', next); } catch (e) {}
+  };
+  try { var th = localStorage.getItem('bt_theme'); if (th) document.documentElement.setAttribute('data-theme', th); } catch (e) {}
+
+  // 初始化
+  loadCatalog().then(loadInstances);
+})();
+</script>
+</body>
+</html>

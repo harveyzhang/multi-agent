@@ -66,7 +66,7 @@ def _get_skill_doc(max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS) -> s
         selected_skills = sorted_skills[:1]
     
     skill_list = "\n".join([
-        f"  <skill>\n    <name>{s.name}</name>\n    <description>{s.description}</description>\n  </skill>"
+        f"  {s.name}: {s.description[:100]}..." if len(s.description) > 100 else f"  {s.name}: {s.description}"
         for s in selected_skills
     ])
 
@@ -93,18 +93,40 @@ Invoke this tool to load a skill when a task matches one of the available skills
 
 Actions (action 参数):
 - load (default): 加载指定 name 的技能。可加 resource='scripts/x.py' 读附属文件
+- search: 按关键词搜索技能（name=关键词，返回匹配的技能列表+描述摘要）
 - install: 安装技能到项目 skills/ 目录。source 可为 GitHub 仓库链接 / zip 直链 / 本地目录（zip 或文件夹）
 - uninstall: 卸载 name 指定的技能
 - list: 列出当前已装技能
 - market: 从配置的技能市场（多源，config.json skills_market）拉取可用技能清单
 
 Args:
-    name: The name of the skill from available_skills{hint}
-    action: load | install | uninstall | list | market (default: load)
+    name: 技能名（load/uninstall）或搜索关键词（action=search）
+    action: load | search | install | uninstall | list | market (default: load)
     source: install 时的来源（URL / 本地路径）
     overwrite: install 时是否覆盖已存在技能 (default: false)
     resource: load 时按需加载的附属文件路径
 """
+
+def _record_skill_usage(name: str, action: str, result: str, source: str = ""):
+    """把一次技能操作记入技能粒度统计（best-effort，绝不影响主流程）。
+
+    工具级统计只能记到 "Skills" 这一个名字，无法回答「哪个技能真被用过」。
+    这里解析工具返回的 <toolcall_status> 判定成败，按技能名累计，
+    为「技能摘要该保留哪些 / 哪些可以延迟加载」提供长期依据。
+    """
+    try:
+        from ..metrics import get_metrics
+        status = "error" if "<toolcall_status>error</toolcall_status>" in result else "ok"
+        # install 时 name 常为空（从 source 推断），退化为 source 末段，
+        # 否则所有安装都会挤进 "unknown" 这一条，失去区分意义。
+        label = (name or "").strip()
+        if not label and action == "install" and source:
+            label = os.path.basename(source.rstrip("/")).removesuffix(".zip") or source
+        get_metrics().record_skill(label, action, status)
+    except Exception:
+        # 统计失败不影响技能加载本身
+        pass
+
 
 def Skills(name: str = "", action: str = "load", source: str = "", overwrite: bool = False, resource: str = ""):
     """
@@ -120,6 +142,19 @@ def Skills(name: str = "", action: str = "load", source: str = "", overwrite: bo
     - action="list"：列出当前已装技能
     - action="market"：从配置的技能市场（多源，config.json skills_market）拉取可用技能清单
     """
+    action = (action or "load").strip().lower()
+    result = _skills_impl(name=name, action=action, source=source,
+                          overwrite=overwrite, resource=resource)
+    # 统计是旁路：任何异常都不允许影响技能加载结果
+    try:
+        _record_skill_usage(name, action, result, source)
+    except Exception:
+        pass
+    return result
+
+
+def _skills_impl(name: str = "", action: str = "load", source: str = "", overwrite: bool = False, resource: str = ""):
+    """Skills 的实际实现（不含统计埋点，便于单测直接调用）。"""
     action = (action or "load").strip().lower()
 
     # ---- 安装 / 卸载（高风险，需二次确认由 risk_level 控制）----
@@ -162,6 +197,17 @@ def Skills(name: str = "", action: str = "load", source: str = "", overwrite: bo
         lines = [f"已装技能（共 {len(skills)} 个）："]
         for s in skills:
             lines.append(f"  - {s.name}")
+        return _xml_response("done", "\n".join(lines))
+
+    if action == "search":
+        if not name:
+            return _xml_response("error", "search 需要提供 name（搜索关键词）")
+        results = skill_manager.search(name, limit=10)
+        if not results:
+            return _xml_response("done", f"未找到匹配 '{name}' 的技能。")
+        lines = [f"搜索 '{name}' 结果（共 {len(results)} 条）："]
+        for r in results:
+            lines.append(f"  - {r['name']}（{r['description']}）")
         return _xml_response("done", "\n".join(lines))
 
     if action == "market":

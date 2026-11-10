@@ -102,6 +102,15 @@ class TestSSEGeneratorSmoke(unittest.TestCase):
         self.assertIn("message_think", kinds)
         self.assertIn("message", kinds)
 
+    def test_stream_reset_mapped_and_not_downgraded(self):
+        """reasoning 退化重试事件必须原样下发，不能被降级成 message"""
+        mapped = W._map_agent_chunk({"type": "stream_reset", "data": "reasoning_repeat"})
+        self.assertEqual(len(mapped), 1)
+        event, data = mapped[0]
+        self.assertEqual(event, "stream_reset")
+        self.assertEqual(data.get("reason"), "reasoning_repeat")
+        self.assertIn("stream_reset", W._KNOWN_SSE_EVENTS)
+
     def test_resume_from_last_id_no_duplicate(self):
         """断线续传：从 last_id 续播，不重不漏"""
         job = self._make_job()
@@ -177,8 +186,13 @@ class TestSSEGeneratorSmoke(unittest.TestCase):
 
     @staticmethod
     def _parse_block(block):
-        """解析单个 SSE 块 → {id, event, data}"""
+        """解析单个 SSE 块 → {id, event, data}；SSE 注释行（以 : 开头）忽略"""
         if not block or not block.strip():
+            return None
+        # 过滤掉纯注释块
+        stripped = [line for line in block.splitlines()
+                    if line and not line.startswith(":")]
+        if not stripped:
             return None
         rec = {"id": None, "event": "message", "data": None}
         data_lines = []

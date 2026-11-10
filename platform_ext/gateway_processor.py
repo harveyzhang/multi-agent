@@ -1,0 +1,527 @@
+"""多平台 IM 通道 → BT 对话桥接（MessageProcessor）。
+
+把通道收到的 InboundMessage 桥接到 BT 现有 agent 对话体系：
+
+- 用 channel_subject.subject_id 生成稳定 session_id（gw_<channel_type>_<subject>）；
+- 连续对话：若该会话已有任务在运行，先取消，再发起新消息（避免任务排队堆积）；
+- 每通道模板：读取该通道配置的 template，发起对话时传给 chat_start；
+- 异步迭代 agent_main.chat_events 读取流式回复；
+- 把文本增量 yield 成 MessageEvent.delta，结束时 completed()。
+
+这样通道消息能真正进入 BT 的对话/记忆/工具体系，实现"对话绑定"。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from typing import Any, AsyncIterator
+
+logger = logging.getLogger("platform-ext-gateway-processor")
+
+# 合法 session 字符（与 web_server._validate_session_id 对齐）
+_SESSION_SAFE = re.compile(r"[^A-Za-z0-9_.:@-]")
+
+
+def _safe_session_component(value: str) -> str:
+    """清洗 subject_id 等，得到仅含安全字符的会话分量。"""
+    cleaned = _SESSION_SAFE.sub("_", str(value or "anon"))
+    cleaned = cleaned.strip("._")
+    return cleaned[:64] or "anon"
+
+
+def session_id_for(channel_type: str, subject_id: str) -> str:
+    """生成稳定的 BT 会话 ID：gw_<channel_type>_<subject>。"""
+    return f"gw_{_safe_session_component(channel_type)}_{_safe_session_component(subject_id)}"
+
+
+# ── 会话 → 通道出站路由（后台任务回灌用） ────────────────────────────────
+# 为什么需要：长任务子代理在主会话结束后才回调，此时通道侧的 inbound 处理器
+# （processor 的 async generator）已经 return，SSE 流早已关闭。回灌产生的新回复
+# 只会写进 web_server 的 chat job，前端 SSE 若已断开就彻底没人读——用户永远收不到。
+# 因此这里记录每个 gw_ 会话最近一次的出站上下文（channel 实例 + subject），
+# 供 web_server 在回灌收尾时主动 push 到通道。
+
+# session_id -> (channel, subject)
+_SESSION_ROUTES: dict[str, Any] = {}
+
+
+def register_session_route(session_id: str, channel: Any, subject: Any) -> None:
+    """记录会话的出站路由上下文（每次 inbound 处理时刷新）。"""
+    try:
+        if session_id and channel is not None and subject is not None:
+            _SESSION_ROUTES[session_id] = (channel, subject)
+    except Exception:  # noqa: BLE001
+        logger.debug("[gw-proc] 注册会话路由失败 sid=%s", session_id, exc_info=True)
+
+
+def get_session_route(session_id: str):
+    """取会话出站路由 (channel, subject)，未注册返回 None。"""
+    return _SESSION_ROUTES.get(session_id)
+
+
+def parse_session_id(session_id: str) -> tuple[str, str] | None:
+    """从 gw_<channel_type>_<subject> 反解出 (channel_type, subject_id)。
+
+    注意：_safe_session_component 会把非法字符替换成 ``_``，所以反解得到的
+    subject_id 可能与原值不完全一致；这里只用于路由兜底匹配，不做严格还原。
+    """
+    s = str(session_id or "")
+    if not s.startswith("gw_"):
+        return None
+    rest = s[3:]
+    # channel_type 里不含下划线（feishu/dingtalk/qq/weixin/wecom/telegram/...）
+    if "_" not in rest:
+        return None
+    channel_type, subject = rest.split("_", 1)
+    if not channel_type or not subject:
+        return None
+    return channel_type, subject
+
+
+def push_to_channel(session_id: str, text: str, *, prefer_route: bool = True) -> bool:
+    """把一段文本主动推送到该会话所属的 IM 通道。
+
+    优先用 register_session_route 记录的精确 (channel, subject)；若没有记录，
+    退化为按 channel_type 扫描所有运行中通道、匹配 subject_id。
+
+    本函数是同步阻塞的（内部用 run_coroutine_threadsafe 投递到事件循环），
+    可安全地在 web_server 的回灌线程里直接调用。
+
+    @return True 表示已投递，False 表示找不到路由或投递失败。
+    """
+    if not str(text or "").strip():
+        return False
+
+    channel = None
+    subject = None
+
+    if prefer_route:
+        route = _SESSION_ROUTES.get(session_id)
+        if route is not None:
+            channel, subject = route
+
+    if channel is None or subject is None:
+        parsed = parse_session_id(session_id)
+        if parsed is None:
+            return False
+        channel_type, subject_hint = parsed
+        channel, subject = _find_channel_subject(channel_type, subject_hint)
+
+    if channel is None or subject is None:
+        return False
+
+    return _dispatch_push(channel, subject, text)
+
+
+def _find_channel_subject(channel_type: str, subject_hint: str):
+    """按 channel_type 扫描运行中通道，找到 subject_id 匹配的 subject。"""
+    try:
+        from platform_ext import gateway as gw
+
+        mgr = gw._manager  # noqa: SLF001 - 同包内部协作
+        if mgr is None:
+            return None, None
+        for cid in list(getattr(mgr, "channel_ids", []) or []):
+            ch = mgr.get_channel(cid)
+            if ch is None:
+                continue
+            if str(getattr(ch, "channel_type", "") or "") != channel_type:
+                continue
+            for sub in ch.list_subjects():
+                if str(getattr(sub, "subject_id", "") or "") == subject_hint:
+                    return ch, sub
+            # subject 尚未登记时，用裸 hint 造一个最小 subject 兜底
+            try:
+                from octop_gateway.models import ChannelSubject
+
+                return ch, ChannelSubject(subject_id=subject_hint)
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        logger.debug("[gw-proc] 扫描通道失败 type=%s", channel_type, exc_info=True)
+    return None, None
+
+
+def _dispatch_push(channel: Any, subject: Any, text: str) -> bool:
+    """把 push 调用投递到 channel 所在事件循环执行。
+
+    注意：channel 内部的 aiohttp session 绑定在 gateway 主事件循环上，
+    不能在新建的 asyncio.run() 循环中使用，否则会报
+    ``Timeout context manager should be used inside a task``。
+    因此优先从 gateway._manager 拿主 loop 并投递；只有拿不到时才退回到当前线程循环。
+    """
+    import asyncio
+    import threading
+
+    async def _do_push() -> None:
+        await channel.push_text(subject, text)
+
+    try:
+        # 优先用 gateway 主事件循环（channel 的 aiohttp session 绑定在此）
+        loop: asyncio.AbstractEventLoop | None = None
+        try:
+            from platform_ext import gateway as gw_mod
+            mgr = getattr(gw_mod, "_manager", None)
+            if mgr is not None:
+                loop = getattr(mgr, "_loop", None)
+        except Exception:  # noqa: BLE001
+            pass
+
+        # 兜底：channel 自己是否暴露了 _main_loop
+        if (loop is None or loop.is_closed()) and hasattr(channel, "_main_loop"):
+            loop = channel._main_loop
+
+        # 再兜底：当前线程的 running loop
+        if loop is None or loop.is_closed():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # 无 running loop 且没有主 loop：channel 的 aiohttp session 绑定在 gateway 主 loop，
+                # 不能用 asyncio.run() 新建的独立 loop 执行（会报 Timeout context manager should be
+                # used inside a task）。只能放弃投递，返回 False。
+                logger.warning(
+                    "[gw-proc] 推送到通道失败：找不到活跃事件循环"
+                    "（gateway._manager._loop 未就绪），text_len=%d",
+                    len(str(text or "")),
+                )
+                return False
+
+        if not loop.is_running():
+            # loop 存在但未运行（极少见），channel 的 aiohttp session 无法跨 loop 使用
+            logger.warning("[gw-proc] 推送到通道失败：loop 未运行")
+            return False
+
+        # loop 正在运行：通过 run_coroutine_threadsafe 投递
+        try:
+            fut = asyncio.run_coroutine_threadsafe(_do_push(), loop)
+            fut.result(timeout=30)
+        except Exception:  # noqa: BLE001
+            logger.warning("[gw-proc] 推送到通道失败", exc_info=True)
+            return False
+        return True
+    except Exception:  # noqa: BLE001
+        logger.warning("[gw-proc] 推送到通道失败", exc_info=True)
+        return False
+
+
+def _extract_text(message) -> str:
+    """从 InboundMessage 提取纯文本。"""
+    try:
+        return message.text or ""
+    except Exception:  # noqa: BLE001
+        try:
+            parts = getattr(message, "content", []) or []
+            return "\n".join(
+                getattr(c, "text", "") for c in parts if getattr(c, "text", "")
+            )
+        except Exception:  # noqa: BLE001
+            return ""
+
+
+def _parse_sse_data(data_payload: str) -> Any:
+    """解析 chat_events SSE 的 data 行（JSON 字符串）。
+
+    BT 的 sse_pack 对字符串 data 直接输出裸文本（``data: <text>``，不 JSON 化），
+    对非字符串 data 才输出 JSON（``data: <json>``）。这里只做纯 JSON 解析：
+
+    - JSON 可解析 → 返回解析后的值（dict / list / int / str）
+    - 不可解析（裸文本 / 空）→ 返回 ``None``，由调用方按裸文本处理
+    """
+    if not data_payload:
+        return None
+    try:
+        import json
+
+        return json.loads(data_payload)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _extract_sse_data(sse) -> dict[str, Any]:
+    """从 SSE 文本中提取 event/data 并解析为 dict（供 processor 读 event/data）。
+
+    兼容三种输入：
+    - str（SSE 文本）：同时解析 ``event:`` 与 ``data:`` 行；
+    - dict（某些封装直接返回事件对象）：原样返回；
+    - data 行是纯数字/列表（json.loads 得到非 dict）→ 防御性包装成 message 事件，
+      避免 ``data_payload.get("event")`` 在 int 上崩溃（此前报 'int' object has no attribute 'get'）。
+    """
+    if isinstance(sse, dict):
+        return sse
+    event = ""
+    data_line = ""
+    if isinstance(sse, str):
+        for line in sse.splitlines():
+            if line.startswith("event:"):
+                event = line[6:].strip()
+            elif line.startswith("data:"):
+                data_line = line[5:].strip()
+    parsed = _parse_sse_data(data_line)
+    if parsed is None:
+        # 裸文本：BT sse_pack 把真实换行转成字面 \n（data 行不能含裸换行），
+        # 这里还原成真实换行，避免通道收到字面 \n 两个字符而不换行。
+        # 与 BT 前端 App.vue 的 .replace(/\\n/g, '\n') 行为对齐。
+        parsed = {"content": data_line.replace("\\n", "\n")}
+    elif not isinstance(parsed, dict):
+        # data 行是纯数字/列表（如序列号等），防御性包装成消息内容
+        parsed = {"content": str(parsed)}
+    return {"event": event, "data": parsed}
+
+
+def _cancel_running_tasks(web_server, sid: str) -> None:
+    """取消指定会话所有运行中的任务（连续对话：先取消再发新消息）。
+
+    通过 chat_jobs 精确判断是否有 running 任务，避免误伤已完成任务。
+    """
+    try:
+        active = web_server.chat_jobs.active_for_session(sid)
+        running = [(k, j) for k, j in active if j.is_running]
+        if not running:
+            return
+        logger.info("[gw-proc] 会话 %s 有 %d 个运行中任务，先取消", sid, len(running))
+        # chat_stop 会 request_stop + 置 stopped + close agent
+        web_server.agent_main.chat_stop({"session_id": sid})
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[gw-proc] 取消运行中任务失败（忽略）: %s", e)
+
+
+def _wait_tasks_stopped(web_server, sid: str, timeout: float = 5.0) -> None:
+    """等待会话内所有任务退出运行态，避免新旧任务并发。"""
+    try:
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            active = web_server.chat_jobs.active_for_session(sid)
+            if not any(j.is_running for _, j in active):
+                return
+            asyncio.sleep(0.15)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[gw-proc] 等待任务停止超时/失败: %s", e)
+
+
+def _channel_template(gateway, channel_type: str) -> str:
+    """读取该通道配置的 template（可选）。"""
+    try:
+        cfg = gateway._gateway_cfg()
+        return str((cfg.get(channel_type, {}) or {}).get("template", "") or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _channel_mode(gateway, channel_type: str, default: str = "single") -> str:
+    """读取该通道配置的对话模式（single/group/claude 等，可选）。
+
+    通道对话默认走 BT 单 Agent（single）；如需集团编排或 Claude CLI，
+    可在通道配置里设 mode 字段（面板保存配置时写入）。
+    """
+    try:
+        cfg = gateway._gateway_cfg()
+        val = str((cfg.get(channel_type, {}) or {}).get("mode", "") or "").strip()
+        if val:
+            return val
+    except Exception:  # noqa: BLE001
+        pass
+    return default
+
+
+def _channel_workspace(gateway, channel_type: str) -> str:
+    """读取该通道配置的默认工作目录（可选）。
+
+    面板可在每通道配置里设 workspace 字段；发起对话时传给 chat_start，
+    让该通道的 agent 以指定目录为默认 cwd。留空则回退 BT 全局默认。
+    """
+    try:
+        cfg = gateway._gateway_cfg()
+        return str((cfg.get(channel_type, {}) or {}).get("workspace", "") or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def make_processor(agent_main=None, chat_jobs=None, gateway=None):
+    """构造 MessageProcessor（async generator）。
+
+    可显式注入依赖（便于测试）；默认懒加载 web_server 的对应对象。
+    """
+
+    def _get_agent_main():
+        if agent_main is not None:
+            return agent_main
+        try:
+            import web_server
+
+            return web_server.agent_main
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _get_chat_jobs():
+        if chat_jobs is not None:
+            return chat_jobs
+        try:
+            import web_server
+
+            return web_server.chat_jobs
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _get_gateway():
+        if gateway is not None:
+            return gateway
+        try:
+            from platform_ext import gateway as gw
+
+            return gw
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def processor(message) -> AsyncIterator[Any]:
+        from octop_gateway.models import MessageEvent
+
+        text = _extract_text(message)
+        if not text.strip():
+            return
+
+        channel_type = str(getattr(message, "channel_type", "") or "unknown")
+        subject = getattr(message, "channel_subject", None)
+        subject_id = getattr(subject, "subject_id", None) or "anon"
+        sid = session_id_for(channel_type, subject_id)
+
+        ag = _get_agent_main()
+        if ag is None:
+            yield MessageEvent.error_event("BT agent_main 不可用")
+            return
+        ws = _get_chat_jobs()
+
+        # 连续对话：先取消该会话运行中的任务，等其退出，再发新消息
+        if ws is not None:
+            _cancel_running_tasks_with(ws, ag, sid)
+            _wait_tasks_stopped(ws, sid)
+
+        # 每通道模板/模式/工作目录：从通道配置读取（可选）
+        tpl = ""
+        mode = "single"
+        workspace = ""
+        gw = _get_gateway()
+        if gw is not None:
+            tpl = _channel_template(gw, channel_type)
+            mode = _channel_mode(gw, channel_type, default="single")
+            workspace = _channel_workspace(gw, channel_type)
+
+        # 注册出站路由：记录 (channel, subject)，供长任务子代理回灌时主动回推。
+        # 这里用 message.channel_id 精确定位通道实例（同类通道可能有多个实例）。
+        try:
+            _cid = str(getattr(message, "channel_id", "") or "")
+            _mgr = getattr(gw, "_manager", None) if gw is not None else None
+            if _cid and _mgr is not None and subject is not None:
+                _ch = _mgr.get_channel(_cid)
+                if _ch is not None:
+                    register_session_route(sid, _ch, subject)
+        except Exception:  # noqa: BLE001
+            logger.debug("[gw-proc] 注册出站路由失败 sid=%s", sid, exc_info=True)
+
+        # 启动后台对话任务（复用 BT 现有 agent 体系）
+        start_params: dict[str, Any] = {
+            "session_id": sid,
+            "message": text,
+            "mode": mode,
+        }
+        if tpl:
+            start_params["template"] = tpl
+        if workspace:
+            start_params["workspace"] = workspace
+        try:
+            start_res = ag.chat_start(start_params)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[gw-proc] chat_start 失败")
+            yield MessageEvent.error_event(f"启动对话失败: {e}")
+            return
+
+        # 校验启动是否成功
+        if isinstance(start_res, dict) and not start_res.get("status", True):
+            yield MessageEvent.error_event(str(start_res.get("msg") or "启动对话失败"))
+            return
+
+        # 订阅事件流，把文本增量转发为 MessageEvent.delta
+        yield MessageEvent.typing()
+        try:
+            async for sse in ag.chat_events({"session_id": sid}):
+                data_payload = _extract_sse_data(sse)
+                event = data_payload.get("event")
+                data = data_payload.get("data")
+                if event == "message" and isinstance(data, dict):
+                    content = str(data.get("content") or data.get("text") or "")
+                    if content:
+                        yield MessageEvent.delta(content)
+                elif event == "error":
+                    msg = ""
+                    if isinstance(data, dict):
+                        msg = str(data.get("msg") or data.get("content") or "")
+                    elif data is not None:
+                        msg = str(data)
+                    if msg:
+                        yield MessageEvent.error_event(msg)
+                    else:
+                        yield MessageEvent.completed()
+                    return
+                elif event == "message_end":
+                    yield MessageEvent.completed()
+                    return
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[gw-proc] chat_events 流中断")
+            yield MessageEvent.error_event(f"对话流中断: {e}")
+
+    return processor
+
+
+def _cancel_running_tasks_with(ws, ag, sid: str) -> None:
+    """取消指定会话所有运行中任务（连续对话：先取消再发新消息）。"""
+    try:
+        active = ws.active_for_session(sid)
+        running = [(k, j) for k, j in active if j.is_running]
+        if not running:
+            return
+        logger.info("[gw-proc] 会话 %s 有 %d 个运行中任务，先取消", sid, len(running))
+        ag.chat_stop({"session_id": sid})
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[gw-proc] 取消运行中任务失败（忽略）: %s", e)
+
+
+def _wait_tasks_stopped(ws, sid: str, timeout: float = 5.0) -> None:
+    """等待会话内所有任务退出运行态，避免新旧任务并发。"""
+    try:
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            active = ws.active_for_session(sid)
+            if not any(j.is_running for _, j in active):
+                return
+            asyncio.sleep(0.15)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[gw-proc] 等待任务停止超时/失败: %s", e)
+
+
+async def _pre_lock_cancel_handler(channel_id: str, message) -> None:
+    """进入会话锁之前的取消钩子（连续对话关键路径）。
+
+    通道 worker 在处理新消息时，会先拿 session 锁。若上一条消息的对话
+    还在流式输出（可能持续数十分钟），新消息会一直排队等待锁，永远轮不到
+    processor 里那句"先取消再发新消息"——于是用户看到"发了没反应、旧任务
+    还在跑"。
+
+    这里在拿锁之前就取消该会话的运行中任务，让旧一轮尽快退出释放锁。
+    """
+    try:
+        channel_type = str(getattr(message, "channel_type", "") or "")
+        subject = getattr(message, "channel_subject", None)
+        subject_id = getattr(subject, "subject_id", None) or ""
+        if not channel_type or not subject_id:
+            return
+        sid = session_id_for(channel_type, subject_id)
+        try:
+            import web_server
+        except Exception:  # noqa: BLE001
+            return
+        _cancel_running_tasks_with(web_server.chat_jobs, web_server.agent_main, sid)
+    except Exception:  # noqa: BLE001
+        logger.debug("[gw-proc] pre-lock 取消失败（忽略）", exc_info=True)
